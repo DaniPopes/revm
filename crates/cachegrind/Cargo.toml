@@ -1,0 +1,12 @@
+[package]
+name = "revm-cachegrind"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+revm = { path = "../revm" }
+
+[[bin]]
+name = "snailtracer"
+path = "src/snailtracer.rs"
