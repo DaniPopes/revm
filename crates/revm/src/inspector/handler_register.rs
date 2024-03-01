@@ -6,7 +6,7 @@ use crate::{
     Evm, FrameOrResult, FrameResult, Inspector, JournalEntry,
 };
 use core::cell::RefCell;
-use revm_interpreter::opcode::InstructionTables;
+use revm_interpreter::opcode::{DynInstruction, InstructionTable};
 use std::{boxed::Box, rc::Rc, sync::Arc, vec::Vec};
 
 /// Provides access to an `Inspector` instance.
@@ -41,14 +41,13 @@ pub fn inspector_handle_register<'a, DB: Database, EXT: GetInspector<DB>>(
         .take()
         .expect("Handler must have instruction table");
     let mut table = match table {
-        InstructionTables::Plain(table) => table
-            .into_iter()
-            .map(|i| inspector_instruction(i))
-            .collect::<Vec<_>>(),
-        InstructionTables::Boxed(table) => table
-            .into_iter()
-            .map(|i| inspector_instruction(i))
-            .collect::<Vec<_>>(),
+        InstructionTable::Plain(table) => Box::new(table.get().map(inspector_instruction)),
+        InstructionTable::Boxed(mut table) => {
+            for i in &mut table[..] {
+                replace_boxed_instruction(i, inspector_instruction);
+            }
+            table
+        }
     };
 
     // Register inspector Log instruction.
@@ -90,7 +89,7 @@ pub fn inspector_handle_register<'a, DB: Database, EXT: GetInspector<DB>>(
     inspect_log(opcode::LOG3);
     inspect_log(opcode::LOG4);
 
-    // // register selfdestruct function.
+    // Register `SELFDESTRUCT` function.
     if let Some(i) = table.get_mut(opcode::SELFDESTRUCT as usize) {
         let old = core::mem::replace(i, Box::new(|_, _| ()));
         *i = Box::new(
@@ -122,10 +121,8 @@ pub fn inspector_handle_register<'a, DB: Database, EXT: GetInspector<DB>>(
         )
     }
 
-    // cast vector to array.
-    handler.instruction_table = Some(InstructionTables::Boxed(
-        table.try_into().unwrap_or_else(|_| unreachable!()),
-    ));
+    // Return the instruction table.
+    handler.instruction_table = Some(InstructionTable::Boxed(table));
 
     // call and create input stack shared between handlers. They are used to share
     // inputs in *_end Inspector calls.
@@ -256,9 +253,21 @@ pub fn inspector_instruction<
     )
 }
 
+fn replace_boxed_instruction<'a, H, F, N>(instruction: &mut BoxedInstruction<'a, H>, make: F)
+where
+    F: FnOnce(BoxedInstruction<'a, H>) -> N,
+    N: Fn(&mut Interpreter, &mut H) + 'a,
+{
+    let old = std::mem::replace(instruction, noop_instruction_boxed());
+    *instruction = Box::new(make(old));
+}
+
+fn noop_instruction_boxed<'a, H>() -> BoxedInstruction<'a, H> {
+    Box::new(|_, _| {})
+}
+
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use crate::{
         db::EmptyDB,
@@ -273,8 +282,8 @@ mod tests {
     #[test]
     fn test_make_boxed_instruction_table() {
         // test that this pattern builds.
-        let inst: InstructionTable<Evm<'_, NoOpInspector, EmptyDB>> =
-            make_instruction_table::<Evm<'_, _, _>, BerlinSpec>();
+        let inst: PlainInstructionTable<Evm<'_, NoOpInspector, EmptyDB>> =
+            *make_instruction_table::<Evm<'_, _, _>, BerlinSpec>().get();
         let _test: BoxedInstructionTable<'_, Evm<'_, _, _>> =
             make_boxed_instruction_table::<'_, Evm<'_, NoOpInspector, EmptyDB>, BerlinSpec, _>(
                 inst,

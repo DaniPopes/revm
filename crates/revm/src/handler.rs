@@ -8,7 +8,7 @@ pub use handle_types::*;
 
 // Includes.
 use crate::{
-    interpreter::{opcode::InstructionTables, Host},
+    interpreter::{opcode::InstructionTable, Host},
     primitives::{db::Database, spec_to_generic, HandlerCfg, Spec, SpecId},
     Evm,
 };
@@ -24,7 +24,7 @@ pub struct Handler<'a, H: Host + 'a, EXT, DB: Database> {
     /// Handler config.
     pub cfg: HandlerCfg,
     /// Instruction table type.
-    pub instruction_table: Option<InstructionTables<'a, H>>,
+    pub instruction_table: Option<InstructionTable<'a, H>>,
     /// Registers that will be called on initialization.
     pub registers: Vec<HandleRegisters<'a, EXT, DB>>,
     /// Validity handles.
@@ -60,7 +60,7 @@ impl<'a, EXT, DB: Database> EvmHandler<'a, EXT, DB> {
     pub fn mainnet<SPEC: Spec>() -> Self {
         Self {
             cfg: HandlerCfg::new(SPEC::SPEC_ID),
-            instruction_table: Some(InstructionTables::new_plain::<SPEC>()),
+            instruction_table: Some(InstructionTable::new_plain::<SPEC>()),
             registers: Vec::new(),
             validation: ValidationHandler::new::<SPEC>(),
             pre_execution: PreExecutionHandler::new::<SPEC>(),
@@ -103,12 +103,12 @@ impl<'a, EXT, DB: Database> EvmHandler<'a, EXT, DB> {
     }
 
     /// Take instruction table.
-    pub fn take_instruction_table(&mut self) -> Option<InstructionTables<'a, Evm<'a, EXT, DB>>> {
+    pub fn take_instruction_table(&mut self) -> Option<InstructionTable<'a, Evm<'a, EXT, DB>>> {
         self.instruction_table.take()
     }
 
     /// Set instruction table.
-    pub fn set_instruction_table(&mut self, table: InstructionTables<'a, Evm<'a, EXT, DB>>) {
+    pub fn set_instruction_table(&mut self, table: InstructionTable<'a, Evm<'a, EXT, DB>>) {
         self.instruction_table = Some(table);
     }
 

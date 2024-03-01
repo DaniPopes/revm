@@ -3,7 +3,7 @@ use crate::{
     db::{Database, DatabaseCommit, EmptyDB},
     handler::Handler,
     interpreter::{
-        opcode::InstructionTables, Host, Interpreter, InterpreterAction, SStoreResult,
+        opcode::InstructionTable, Host, Interpreter, InterpreterAction, SStoreResult,
         SelfDestructResult, SharedMemory,
     },
     primitives::{
@@ -225,8 +225,8 @@ impl<EXT, DB: Database> Evm<'_, EXT, DB> {
 
         // run main loop
         let frame_result = match &table {
-            InstructionTables::Plain(table) => self.run_the_loop(table, first_frame),
-            InstructionTables::Boxed(table) => self.run_the_loop(table, first_frame),
+            InstructionTable::Plain(table) => self.run_the_loop(table.get(), first_frame),
+            InstructionTable::Boxed(table) => self.run_the_loop(table, first_frame),
         };
 
         // return back instruction table

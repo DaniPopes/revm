@@ -6,21 +6,27 @@ use crate::{
     primitives::{Spec, SpecId},
     Host, Interpreter,
 };
-use core::fmt;
+use core::{fmt, marker::PhantomData};
 use std::boxed::Box;
 
-/// EVM opcode function signature.
+/// EVM instruction function pointer.
 pub type Instruction<H> = fn(&mut Interpreter, &mut H);
 
-/// Instruction table is list of instruction function pointers mapped to
-/// 256 EVM opcodes.
-pub type InstructionTable<H> = [Instruction<H>; 256];
+/// A table of instruction function pointers.
+pub type PlainInstructionTable<H> = [Instruction<H>; 256];
 
-/// EVM opcode function signature.
-pub type BoxedInstruction<'a, H> = Box<dyn Fn(&mut Interpreter, &mut H) + 'a>;
+/// EVM instruction function closure.
+pub type DynInstruction<'a, H> = dyn Fn(&mut Interpreter, &mut H) + 'a;
 
-/// A table of instructions.
+/// EVM instruction boxed function closure.
+pub type BoxedInstruction<'a, H> = Box<DynInstruction<'a, H>>;
+
+/// A table of boxed instruction closures.
 pub type BoxedInstructionTable<'a, H> = [BoxedInstruction<'a, H>; 256];
+
+#[doc(hidden)]
+#[deprecated = "use `InstructionTable` instead"]
+pub type InstructionTables<'a, H> = InstructionTable<'a, H>;
 
 /// Instruction set that contains plain instruction table that contains simple `fn` function pointer.
 /// and Boxed `Fn` variant that contains `Box<dyn Fn()>` function pointer that can be used with closured.
@@ -28,30 +34,81 @@ pub type BoxedInstructionTable<'a, H> = [BoxedInstruction<'a, H>; 256];
 /// Note that `Plain` variant gives us 10-20% faster Interpreter execution.
 ///
 /// Boxed variant can be used to wrap plain function pointer with closure.
-pub enum InstructionTables<'a, H> {
-    Plain(InstructionTable<H>),
-    Boxed(BoxedInstructionTable<'a, H>),
+pub enum InstructionTable<'a, H> {
+    /// Plain, static instruction table.
+    Plain(PlainInstructionTableWrapper<H>),
+    /// Boxed, dynamic instruction table.
+    Boxed(Box<BoxedInstructionTable<'a, H>>),
 }
 
-impl<H: Host> InstructionTables<'_, H> {
-    /// Creates a plain instruction table for the given spec.
+impl<'a, H: Host> InstructionTable<'a, H> {
+    /// Creates the default plain instruction table for the given spec.
     #[inline]
     pub const fn new_plain<SPEC: Spec>() -> Self {
         Self::Plain(make_instruction_table::<H, SPEC>())
     }
 }
 
+/// Workaround to allow `&'static InstructionTable<H>` inside of a type.
+#[repr(transparent)]
+pub struct PlainInstructionTableWrapper<H> {
+    inner: &'static PlainInstructionTable<()>,
+    _phantom: PhantomData<H>,
+}
+
+impl<H> Clone for PlainInstructionTableWrapper<H> {
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<H> Copy for PlainInstructionTableWrapper<H> {}
+
+impl<H: Host> PlainInstructionTableWrapper<H> {
+    /// Creates a new instance with [`make_instruction_table`].
+    #[inline(always)]
+    pub const fn new<SPEC: Spec>() -> Self {
+        make_instruction_table::<H, SPEC>()
+    }
+
+    /// Wraps the given static table.
+    #[inline(always)]
+    pub const fn new_static(table: &'static PlainInstructionTable<H>) -> Self {
+        Self {
+            // SAFETY: Erasing the parameter type from function pointers is safe because we don't
+            // expose the altered table in the public API.
+            inner: unsafe { &*(table as *const _ as *const _) },
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Returns the wrapped table.
+    #[inline(always)]
+    pub const fn get(&self) -> &PlainInstructionTable<H> {
+        // SAFETY: Restoring the original parameter types.
+        unsafe { &*(self.inner as *const _ as *const _) }
+    }
+
+    /// Returns the wrapped table.
+    #[inline(always)]
+    pub const fn into_inner(self) -> &'static PlainInstructionTable<H> {
+        // SAFETY: Restoring the original parameter types.
+        unsafe { &*(self.inner as *const _ as *const _) }
+    }
+}
+
 /// Make instruction table.
 #[inline]
-pub const fn make_instruction_table<H: Host, SPEC: Spec>() -> InstructionTable<H> {
+pub const fn make_instruction_table<H: Host, SPEC: Spec>() -> PlainInstructionTableWrapper<H> {
     // Force const-eval of the table creation, making this function trivial.
     // TODO: Replace this with a `const {}` block once it is stable.
     struct ConstTable<H: Host, SPEC: Spec> {
         _phantom: core::marker::PhantomData<(H, SPEC)>,
     }
     impl<H: Host, SPEC: Spec> ConstTable<H, SPEC> {
-        const NEW: InstructionTable<H> = {
-            let mut tables: InstructionTable<H> = [control::unknown; 256];
+        const NEW: PlainInstructionTable<H> = {
+            let mut tables: PlainInstructionTable<H> = [control::unknown; 256];
             let mut i = 0;
             while i < 256 {
                 tables[i] = instruction::<H, SPEC>(i as u8);
@@ -59,14 +116,19 @@ pub const fn make_instruction_table<H: Host, SPEC: Spec>() -> InstructionTable<H
             }
             tables
         };
+        const NEW_STATIC: PlainInstructionTableWrapper<H> = PlainInstructionTableWrapper::<H> {
+            // SAFETY: See `PlainInstructionTableWrapper`.
+            inner: unsafe { &*(&ConstTable::<H, SPEC>::NEW as *const _ as *const _) },
+            _phantom: PhantomData,
+        };
     }
-    ConstTable::<H, SPEC>::NEW
+    ConstTable::<H, SPEC>::NEW_STATIC
 }
 
 /// Make boxed instruction table that calls `outer` closure for every instruction.
 #[inline]
 pub fn make_boxed_instruction_table<'a, H, SPEC, FN>(
-    table: InstructionTable<H>,
+    table: PlainInstructionTable<H>,
     mut outer: FN,
 ) -> BoxedInstructionTable<'a, H>
 where
