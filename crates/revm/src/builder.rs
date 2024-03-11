@@ -448,20 +448,28 @@ mod test {
         },
         Context, ContextPrecompile, ContextStatefulPrecompile, Evm, InMemoryDB, InnerEvmContext,
     };
-    use revm_interpreter::{Host, Interpreter};
+    use revm_interpreter::{
+        gas, opcode::no_host_instruction, push, Host, InstructionResult, Interpreter,
+    };
     use std::sync::Arc;
 
     #[test]
     fn simple_add_instruction() {
         const CUSTOM_INSTRUCTION_COST: u64 = 133;
         const INITIAL_TX_GAS: u64 = 21000;
-        const EXPECTED_RESULT_GAS: u64 = INITIAL_TX_GAS + CUSTOM_INSTRUCTION_COST;
-        fn custom_instruction(interp: &mut Interpreter, _host: &mut impl Host) {
+        const EXPECTED_RESULT_GAS: u64 = INITIAL_TX_GAS + CUSTOM_INSTRUCTION_COST * 3;
+
+        fn custom_instruction(interp: &mut Interpreter) {
             // just spend some gas
-            interp.gas.record_cost(CUSTOM_INSTRUCTION_COST);
+            gas!(interp, CUSTOM_INSTRUCTION_COST);
         }
 
-        let code = Bytecode::new_raw([0xEF, 0x00].into());
+        fn custom_instruction_with_host<H: Host>(interp: &mut Interpreter, host: &mut H) {
+            gas!(interp, CUSTOM_INSTRUCTION_COST * 2);
+            push!(interp, host.env().tx.gas_price);
+        }
+
+        let code = Bytecode::new_raw([0xEE, 0xEF, 0x00].into());
         let code_hash = code.hash_slow();
         let to_addr = address!("ffffffffffffffffffffffffffffffffffffffff");
 
@@ -472,13 +480,15 @@ mod test {
             })
             .modify_tx_env(|tx| tx.transact_to = TransactTo::Call(to_addr))
             .append_handler_register(|handler| {
-                if let Some(ref mut table) = handler.instruction_table {
-                    table.insert(0xEF, custom_instruction)
+                if let Some(table) = &mut handler.instruction_table {
+                    table.insert(0xEE, no_host_instruction(custom_instruction));
+                    table.insert(0xEF, custom_instruction_with_host);
                 }
             })
             .build();
 
         let result_and_state = evm.transact().unwrap();
+        assert!(result_and_state.result.is_success());
         assert_eq!(result_and_state.result.gas_used(), EXPECTED_RESULT_GAS);
     }
 

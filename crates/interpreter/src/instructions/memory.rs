@@ -1,11 +1,11 @@
 use crate::{
     gas,
     primitives::{Spec, U256},
-    Host, InstructionResult, Interpreter,
+    InstructionResult, Interpreter,
 };
 use core::cmp::max;
 
-pub fn mload<H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn mload(interpreter: &mut Interpreter) {
     gas!(interpreter, gas::VERYLOW);
     pop!(interpreter, index);
     let index = as_usize_or_fail!(interpreter, index);
@@ -13,7 +13,7 @@ pub fn mload<H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
     push!(interpreter, interpreter.shared_memory.get_u256(index));
 }
 
-pub fn mstore<H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn mstore(interpreter: &mut Interpreter) {
     gas!(interpreter, gas::VERYLOW);
     pop!(interpreter, index, value);
     let index = as_usize_or_fail!(interpreter, index);
@@ -21,7 +21,7 @@ pub fn mstore<H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
     interpreter.shared_memory.set_u256(index, value);
 }
 
-pub fn mstore8<H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn mstore8(interpreter: &mut Interpreter) {
     gas!(interpreter, gas::VERYLOW);
     pop!(interpreter, index, value);
     let index = as_usize_or_fail!(interpreter, index);
@@ -29,13 +29,13 @@ pub fn mstore8<H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
     interpreter.shared_memory.set_byte(index, value.byte(0))
 }
 
-pub fn msize<H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn msize(interpreter: &mut Interpreter) {
     gas!(interpreter, gas::BASE);
     push!(interpreter, U256::from(interpreter.shared_memory.len()));
 }
 
 // EIP-5656: MCOPY - Memory copying instruction
-pub fn mcopy<H: Host, SPEC: Spec>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn mcopy<SPEC: Spec>(interpreter: &mut Interpreter) {
     check!(interpreter, CANCUN);
     pop!(interpreter, dst, src, len);
 

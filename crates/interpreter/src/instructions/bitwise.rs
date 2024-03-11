@@ -2,71 +2,71 @@ use super::i256::{i256_cmp, i256_sign_compl, two_compl, Sign};
 use crate::{
     gas,
     primitives::{Spec, U256},
-    Host, InstructionResult, Interpreter,
+    InstructionResult, Interpreter,
 };
 use core::cmp::Ordering;
 
-pub fn lt<H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn lt(interpreter: &mut Interpreter) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
     *op2 = U256::from(op1 < *op2);
 }
 
-pub fn gt<H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn gt(interpreter: &mut Interpreter) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
     *op2 = U256::from(op1 > *op2);
 }
 
-pub fn slt<H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn slt(interpreter: &mut Interpreter) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
     *op2 = U256::from(i256_cmp(&op1, op2) == Ordering::Less);
 }
 
-pub fn sgt<H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn sgt(interpreter: &mut Interpreter) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
     *op2 = U256::from(i256_cmp(&op1, op2) == Ordering::Greater);
 }
 
-pub fn eq<H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn eq(interpreter: &mut Interpreter) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
     *op2 = U256::from(op1 == *op2);
 }
 
-pub fn iszero<H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn iszero(interpreter: &mut Interpreter) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1);
     *op1 = U256::from(*op1 == U256::ZERO);
 }
 
-pub fn bitand<H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn bitand(interpreter: &mut Interpreter) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
     *op2 = op1 & *op2;
 }
 
-pub fn bitor<H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn bitor(interpreter: &mut Interpreter) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
     *op2 = op1 | *op2;
 }
 
-pub fn bitxor<H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn bitxor(interpreter: &mut Interpreter) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
     *op2 = op1 ^ *op2;
 }
 
-pub fn not<H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn not(interpreter: &mut Interpreter) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1);
     *op1 = !*op1;
 }
 
-pub fn byte<H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn byte(interpreter: &mut Interpreter) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
 
@@ -80,7 +80,7 @@ pub fn byte<H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
 }
 
 /// EIP-145: Bitwise shifting instructions in EVM
-pub fn shl<H: Host, SPEC: Spec>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn shl<SPEC: Spec>(interpreter: &mut Interpreter) {
     check!(interpreter, CONSTANTINOPLE);
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
@@ -88,7 +88,7 @@ pub fn shl<H: Host, SPEC: Spec>(interpreter: &mut Interpreter, _host: &mut H) {
 }
 
 /// EIP-145: Bitwise shifting instructions in EVM
-pub fn shr<H: Host, SPEC: Spec>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn shr<SPEC: Spec>(interpreter: &mut Interpreter) {
     check!(interpreter, CONSTANTINOPLE);
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
@@ -96,7 +96,7 @@ pub fn shr<H: Host, SPEC: Spec>(interpreter: &mut Interpreter, _host: &mut H) {
 }
 
 /// EIP-145: Bitwise shifting instructions in EVM
-pub fn sar<H: Host, SPEC: Spec>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn sar<SPEC: Spec>(interpreter: &mut Interpreter) {
     check!(interpreter, CONSTANTINOPLE);
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);

@@ -12,6 +12,11 @@ use std::boxed::Box;
 /// EVM opcode function signature.
 pub type Instruction<H> = fn(&mut Interpreter, &mut H);
 
+/// EVM opcode function signature without, a `Host` parameter.
+///
+/// See [`no_host_instruction`] for more details.
+pub type InstructionNoHost = fn(&mut Interpreter);
+
 /// Instruction table is list of instruction function pointers mapped to
 /// 256 EVM opcodes.
 pub type InstructionTable<H> = [Instruction<H>; 256];
@@ -66,7 +71,7 @@ pub const fn make_instruction_table<H: Host, SPEC: Spec>() -> InstructionTable<H
     }
     impl<H: Host, SPEC: Spec> ConstTable<H, SPEC> {
         const NEW: InstructionTable<H> = {
-            let mut tables: InstructionTable<H> = [control::unknown; 256];
+            let mut tables: InstructionTable<H> = [no_host_instruction(control::unknown); 256];
             let mut i = 0;
             while i < 256 {
                 tables[i] = instruction::<H, SPEC>(i as u8);
@@ -92,8 +97,18 @@ where
     core::array::from_fn(|i| outer(table[i]))
 }
 
+/// Converts a function pointer without a `Host` parameter to an instruction that has one.
+///
+/// This is enables instructions to be implemented without requiring `Host` as a generic parameter,
+/// which reduces generated code size.
+#[inline]
+pub const fn no_host_instruction<H: Host>(no_host: InstructionNoHost) -> Instruction<H> {
+    // SAFETY: We're erasing the `H` parameter from instructions
+    unsafe { core::mem::transmute::<InstructionNoHost, Instruction<H>>(no_host) }
+}
+
 macro_rules! opcodes {
-    ($($val:literal => $name:ident => $f:expr),* $(,)?) => {
+    ($($val:literal => $name:ident => $(@$attr:ident)? $f:expr),* $(,)?) => {
         // Constants for each opcode. This also takes care of duplicate names.
         $(
             #[doc = concat!("The `", stringify!($val), "` (\"", stringify!($name),"\") opcode.")]
@@ -106,12 +121,15 @@ macro_rules! opcodes {
 
         /// Maps each opcode to its name.
         pub const OPCODE_JUMPMAP: [Option<&'static str>; 256] = {
+            const fn assert_sorted(val: u8, prev: u8) {
+                assert!(val == 0 || val > prev, "opcodes must be sorted in ascending order");
+            }
+
             let mut map = [None; 256];
             let mut prev: u8 = 0;
             $(
-                let val: u8 = $val;
-                assert!(val == 0 || val > prev, "opcodes must be sorted in ascending order");
-                prev = val;
+                assert_sorted($val, prev);
+                prev = $val;
                 map[$val] = Some(stringify!($name));
             )*
             let _ = prev;
@@ -121,11 +139,14 @@ macro_rules! opcodes {
         /// Returns the instruction function for the given opcode and spec.
         pub const fn instruction<H: Host, SPEC: Spec>(opcode: u8) -> Instruction<H> {
             match opcode {
-                $($name => $f,)*
-                _ => control::unknown,
+                $($name => opcodes!(@instruction $f; $($attr),*),)*
+                _ => no_host_instruction(control::unknown),
             }
         }
     };
+
+    (@instruction $f:expr;) => { $f };
+    (@instruction $f:expr; no_host) => { no_host_instruction($f) };
 }
 
 // When adding new opcodes:
@@ -134,40 +155,40 @@ macro_rules! opcodes {
 // 3. implement the opcode in the corresponding module;
 //    the function signature must be the exact same as the others
 opcodes! {
-    0x00 => STOP => control::stop,
+    0x00 => STOP => @no_host control::stop,
 
-    0x01 => ADD        => arithmetic::wrapping_add,
-    0x02 => MUL        => arithmetic::wrapping_mul,
-    0x03 => SUB        => arithmetic::wrapping_sub,
-    0x04 => DIV        => arithmetic::div,
-    0x05 => SDIV       => arithmetic::sdiv,
-    0x06 => MOD        => arithmetic::rem,
-    0x07 => SMOD       => arithmetic::smod,
-    0x08 => ADDMOD     => arithmetic::addmod,
-    0x09 => MULMOD     => arithmetic::mulmod,
-    0x0A => EXP        => arithmetic::exp::<H, SPEC>,
-    0x0B => SIGNEXTEND => arithmetic::signextend,
+    0x01 => ADD        => @no_host arithmetic::add,
+    0x02 => MUL        => @no_host arithmetic::mul,
+    0x03 => SUB        => @no_host arithmetic::sub,
+    0x04 => DIV        => @no_host arithmetic::div,
+    0x05 => SDIV       => @no_host arithmetic::sdiv,
+    0x06 => MOD        => @no_host arithmetic::rem,
+    0x07 => SMOD       => @no_host arithmetic::smod,
+    0x08 => ADDMOD     => @no_host arithmetic::addmod,
+    0x09 => MULMOD     => @no_host arithmetic::mulmod,
+    0x0A => EXP        => @no_host arithmetic::exp::<SPEC>,
+    0x0B => SIGNEXTEND => @no_host arithmetic::signextend,
     // 0x0C
     // 0x0D
     // 0x0E
     // 0x0F
-    0x10 => LT     => bitwise::lt,
-    0x11 => GT     => bitwise::gt,
-    0x12 => SLT    => bitwise::slt,
-    0x13 => SGT    => bitwise::sgt,
-    0x14 => EQ     => bitwise::eq,
-    0x15 => ISZERO => bitwise::iszero,
-    0x16 => AND    => bitwise::bitand,
-    0x17 => OR     => bitwise::bitor,
-    0x18 => XOR    => bitwise::bitxor,
-    0x19 => NOT    => bitwise::not,
-    0x1A => BYTE   => bitwise::byte,
-    0x1B => SHL    => bitwise::shl::<H, SPEC>,
-    0x1C => SHR    => bitwise::shr::<H, SPEC>,
-    0x1D => SAR    => bitwise::sar::<H, SPEC>,
+    0x10 => LT     => @no_host bitwise::lt,
+    0x11 => GT     => @no_host bitwise::gt,
+    0x12 => SLT    => @no_host bitwise::slt,
+    0x13 => SGT    => @no_host bitwise::sgt,
+    0x14 => EQ     => @no_host bitwise::eq,
+    0x15 => ISZERO => @no_host bitwise::iszero,
+    0x16 => AND    => @no_host bitwise::bitand,
+    0x17 => OR     => @no_host bitwise::bitor,
+    0x18 => XOR    => @no_host bitwise::bitxor,
+    0x19 => NOT    => @no_host bitwise::not,
+    0x1A => BYTE   => @no_host bitwise::byte,
+    0x1B => SHL    => @no_host bitwise::shl::<SPEC>,
+    0x1C => SHR    => @no_host bitwise::shr::<SPEC>,
+    0x1D => SAR    => @no_host bitwise::sar::<SPEC>,
     // 0x1E
     // 0x1F
-    0x20 => KECCAK256 => system::keccak256,
+    0x20 => KECCAK256 => @no_host system::keccak256,
     // 0x21
     // 0x22
     // 0x23
@@ -183,22 +204,22 @@ opcodes! {
     // 0x2D
     // 0x2E
     // 0x2F
-    0x30 => ADDRESS   => system::address,
+    0x30 => ADDRESS   => @no_host system::address,
     0x31 => BALANCE   => host::balance::<H, SPEC>,
     0x32 => ORIGIN    => host_env::origin,
-    0x33 => CALLER    => system::caller,
-    0x34 => CALLVALUE => system::callvalue,
-    0x35 => CALLDATALOAD => system::calldataload,
-    0x36 => CALLDATASIZE => system::calldatasize,
-    0x37 => CALLDATACOPY => system::calldatacopy,
-    0x38 => CODESIZE     => system::codesize,
-    0x39 => CODECOPY     => system::codecopy,
+    0x33 => CALLER    => @no_host system::caller,
+    0x34 => CALLVALUE => @no_host system::callvalue,
+    0x35 => CALLDATALOAD => @no_host system::calldataload,
+    0x36 => CALLDATASIZE => @no_host system::calldatasize,
+    0x37 => CALLDATACOPY => @no_host system::calldatacopy,
+    0x38 => CODESIZE     => @no_host system::codesize,
+    0x39 => CODECOPY     => @no_host system::codecopy,
 
     0x3A => GASPRICE       => host_env::gasprice,
     0x3B => EXTCODESIZE    => host::extcodesize::<H, SPEC>,
     0x3C => EXTCODECOPY    => host::extcodecopy::<H, SPEC>,
-    0x3D => RETURNDATASIZE => system::returndatasize::<H, SPEC>,
-    0x3E => RETURNDATACOPY => system::returndatacopy::<H, SPEC>,
+    0x3D => RETURNDATASIZE => @no_host system::returndatasize::<SPEC>,
+    0x3E => RETURNDATACOPY => @no_host system::returndatacopy::<SPEC>,
     0x3F => EXTCODEHASH    => host::extcodehash::<H, SPEC>,
     0x40 => BLOCKHASH      => host::blockhash,
     0x41 => COINBASE       => host_env::coinbase,
@@ -216,89 +237,89 @@ opcodes! {
     // 0x4D
     // 0x4E
     // 0x4F
-    0x50 => POP      => stack::pop,
-    0x51 => MLOAD    => memory::mload,
-    0x52 => MSTORE   => memory::mstore,
-    0x53 => MSTORE8  => memory::mstore8,
+    0x50 => POP      => @no_host stack::pop,
+    0x51 => MLOAD    => @no_host memory::mload,
+    0x52 => MSTORE   => @no_host memory::mstore,
+    0x53 => MSTORE8  => @no_host memory::mstore8,
     0x54 => SLOAD    => host::sload::<H, SPEC>,
     0x55 => SSTORE   => host::sstore::<H, SPEC>,
-    0x56 => JUMP     => control::jump,
-    0x57 => JUMPI    => control::jumpi,
-    0x58 => PC       => control::pc,
-    0x59 => MSIZE    => memory::msize,
-    0x5A => GAS      => system::gas,
-    0x5B => JUMPDEST => control::jumpdest,
+    0x56 => JUMP     => @no_host control::jump,
+    0x57 => JUMPI    => @no_host control::jumpi,
+    0x58 => PC       => @no_host control::pc,
+    0x59 => MSIZE    => @no_host memory::msize,
+    0x5A => GAS      => @no_host system::gas,
+    0x5B => JUMPDEST => @no_host control::jumpdest,
     0x5C => TLOAD    => host::tload::<H, SPEC>,
     0x5D => TSTORE   => host::tstore::<H, SPEC>,
-    0x5E => MCOPY    => memory::mcopy::<H, SPEC>,
+    0x5E => MCOPY    => @no_host memory::mcopy::<SPEC>,
 
-    0x5F => PUSH0  => stack::push0::<H, SPEC>,
-    0x60 => PUSH1  => stack::push::<1, H>,
-    0x61 => PUSH2  => stack::push::<2, H>,
-    0x62 => PUSH3  => stack::push::<3, H>,
-    0x63 => PUSH4  => stack::push::<4, H>,
-    0x64 => PUSH5  => stack::push::<5, H>,
-    0x65 => PUSH6  => stack::push::<6, H>,
-    0x66 => PUSH7  => stack::push::<7, H>,
-    0x67 => PUSH8  => stack::push::<8, H>,
-    0x68 => PUSH9  => stack::push::<9, H>,
-    0x69 => PUSH10 => stack::push::<10, H>,
-    0x6A => PUSH11 => stack::push::<11, H>,
-    0x6B => PUSH12 => stack::push::<12, H>,
-    0x6C => PUSH13 => stack::push::<13, H>,
-    0x6D => PUSH14 => stack::push::<14, H>,
-    0x6E => PUSH15 => stack::push::<15, H>,
-    0x6F => PUSH16 => stack::push::<16, H>,
-    0x70 => PUSH17 => stack::push::<17, H>,
-    0x71 => PUSH18 => stack::push::<18, H>,
-    0x72 => PUSH19 => stack::push::<19, H>,
-    0x73 => PUSH20 => stack::push::<20, H>,
-    0x74 => PUSH21 => stack::push::<21, H>,
-    0x75 => PUSH22 => stack::push::<22, H>,
-    0x76 => PUSH23 => stack::push::<23, H>,
-    0x77 => PUSH24 => stack::push::<24, H>,
-    0x78 => PUSH25 => stack::push::<25, H>,
-    0x79 => PUSH26 => stack::push::<26, H>,
-    0x7A => PUSH27 => stack::push::<27, H>,
-    0x7B => PUSH28 => stack::push::<28, H>,
-    0x7C => PUSH29 => stack::push::<29, H>,
-    0x7D => PUSH30 => stack::push::<30, H>,
-    0x7E => PUSH31 => stack::push::<31, H>,
-    0x7F => PUSH32 => stack::push::<32, H>,
+    0x5F => PUSH0  => @no_host stack::push0::<SPEC>,
+    0x60 => PUSH1  => @no_host stack::push::<1>,
+    0x61 => PUSH2  => @no_host stack::push::<2>,
+    0x62 => PUSH3  => @no_host stack::push::<3>,
+    0x63 => PUSH4  => @no_host stack::push::<4>,
+    0x64 => PUSH5  => @no_host stack::push::<5>,
+    0x65 => PUSH6  => @no_host stack::push::<6>,
+    0x66 => PUSH7  => @no_host stack::push::<7>,
+    0x67 => PUSH8  => @no_host stack::push::<8>,
+    0x68 => PUSH9  => @no_host stack::push::<9>,
+    0x69 => PUSH10 => @no_host stack::push::<10>,
+    0x6A => PUSH11 => @no_host stack::push::<11>,
+    0x6B => PUSH12 => @no_host stack::push::<12>,
+    0x6C => PUSH13 => @no_host stack::push::<13>,
+    0x6D => PUSH14 => @no_host stack::push::<14>,
+    0x6E => PUSH15 => @no_host stack::push::<15>,
+    0x6F => PUSH16 => @no_host stack::push::<16>,
+    0x70 => PUSH17 => @no_host stack::push::<17>,
+    0x71 => PUSH18 => @no_host stack::push::<18>,
+    0x72 => PUSH19 => @no_host stack::push::<19>,
+    0x73 => PUSH20 => @no_host stack::push::<20>,
+    0x74 => PUSH21 => @no_host stack::push::<21>,
+    0x75 => PUSH22 => @no_host stack::push::<22>,
+    0x76 => PUSH23 => @no_host stack::push::<23>,
+    0x77 => PUSH24 => @no_host stack::push::<24>,
+    0x78 => PUSH25 => @no_host stack::push::<25>,
+    0x79 => PUSH26 => @no_host stack::push::<26>,
+    0x7A => PUSH27 => @no_host stack::push::<27>,
+    0x7B => PUSH28 => @no_host stack::push::<28>,
+    0x7C => PUSH29 => @no_host stack::push::<29>,
+    0x7D => PUSH30 => @no_host stack::push::<30>,
+    0x7E => PUSH31 => @no_host stack::push::<31>,
+    0x7F => PUSH32 => @no_host stack::push::<32>,
 
-    0x80 => DUP1  => stack::dup::<1, H>,
-    0x81 => DUP2  => stack::dup::<2, H>,
-    0x82 => DUP3  => stack::dup::<3, H>,
-    0x83 => DUP4  => stack::dup::<4, H>,
-    0x84 => DUP5  => stack::dup::<5, H>,
-    0x85 => DUP6  => stack::dup::<6, H>,
-    0x86 => DUP7  => stack::dup::<7, H>,
-    0x87 => DUP8  => stack::dup::<8, H>,
-    0x88 => DUP9  => stack::dup::<9, H>,
-    0x89 => DUP10 => stack::dup::<10, H>,
-    0x8A => DUP11 => stack::dup::<11, H>,
-    0x8B => DUP12 => stack::dup::<12, H>,
-    0x8C => DUP13 => stack::dup::<13, H>,
-    0x8D => DUP14 => stack::dup::<14, H>,
-    0x8E => DUP15 => stack::dup::<15, H>,
-    0x8F => DUP16 => stack::dup::<16, H>,
+    0x80 => DUP1  => @no_host stack::dup::<1>,
+    0x81 => DUP2  => @no_host stack::dup::<2>,
+    0x82 => DUP3  => @no_host stack::dup::<3>,
+    0x83 => DUP4  => @no_host stack::dup::<4>,
+    0x84 => DUP5  => @no_host stack::dup::<5>,
+    0x85 => DUP6  => @no_host stack::dup::<6>,
+    0x86 => DUP7  => @no_host stack::dup::<7>,
+    0x87 => DUP8  => @no_host stack::dup::<8>,
+    0x88 => DUP9  => @no_host stack::dup::<9>,
+    0x89 => DUP10 => @no_host stack::dup::<10>,
+    0x8A => DUP11 => @no_host stack::dup::<11>,
+    0x8B => DUP12 => @no_host stack::dup::<12>,
+    0x8C => DUP13 => @no_host stack::dup::<13>,
+    0x8D => DUP14 => @no_host stack::dup::<14>,
+    0x8E => DUP15 => @no_host stack::dup::<15>,
+    0x8F => DUP16 => @no_host stack::dup::<16>,
 
-    0x90 => SWAP1  => stack::swap::<1, H>,
-    0x91 => SWAP2  => stack::swap::<2, H>,
-    0x92 => SWAP3  => stack::swap::<3, H>,
-    0x93 => SWAP4  => stack::swap::<4, H>,
-    0x94 => SWAP5  => stack::swap::<5, H>,
-    0x95 => SWAP6  => stack::swap::<6, H>,
-    0x96 => SWAP7  => stack::swap::<7, H>,
-    0x97 => SWAP8  => stack::swap::<8, H>,
-    0x98 => SWAP9  => stack::swap::<9, H>,
-    0x99 => SWAP10 => stack::swap::<10, H>,
-    0x9A => SWAP11 => stack::swap::<11, H>,
-    0x9B => SWAP12 => stack::swap::<12, H>,
-    0x9C => SWAP13 => stack::swap::<13, H>,
-    0x9D => SWAP14 => stack::swap::<14, H>,
-    0x9E => SWAP15 => stack::swap::<15, H>,
-    0x9F => SWAP16 => stack::swap::<16, H>,
+    0x90 => SWAP1  => @no_host stack::swap::<1>,
+    0x91 => SWAP2  => @no_host stack::swap::<2>,
+    0x92 => SWAP3  => @no_host stack::swap::<3>,
+    0x93 => SWAP4  => @no_host stack::swap::<4>,
+    0x94 => SWAP5  => @no_host stack::swap::<5>,
+    0x95 => SWAP6  => @no_host stack::swap::<6>,
+    0x96 => SWAP7  => @no_host stack::swap::<7>,
+    0x97 => SWAP8  => @no_host stack::swap::<8>,
+    0x98 => SWAP9  => @no_host stack::swap::<9>,
+    0x99 => SWAP10 => @no_host stack::swap::<10>,
+    0x9A => SWAP11 => @no_host stack::swap::<11>,
+    0x9B => SWAP12 => @no_host stack::swap::<12>,
+    0x9C => SWAP13 => @no_host stack::swap::<13>,
+    0x9D => SWAP14 => @no_host stack::swap::<14>,
+    0x9E => SWAP15 => @no_host stack::swap::<15>,
+    0x9F => SWAP16 => @no_host stack::swap::<16>,
 
     0xA0 => LOG0 => host::log::<0, H>,
     0xA1 => LOG1 => host::log::<1, H>,
@@ -383,7 +404,7 @@ opcodes! {
     0xF0 => CREATE       => host::create::<false, H, SPEC>,
     0xF1 => CALL         => host::call::<H, SPEC>,
     0xF2 => CALLCODE     => host::call_code::<H, SPEC>,
-    0xF3 => RETURN       => control::ret,
+    0xF3 => RETURN       => @no_host control::ret,
     0xF4 => DELEGATECALL => host::delegate_call::<H, SPEC>,
     0xF5 => CREATE2      => host::create::<true, H, SPEC>,
     // 0xF6
@@ -393,8 +414,8 @@ opcodes! {
     0xFA => STATICCALL   => host::static_call::<H, SPEC>,
     // 0xFB
     // 0xFC
-    0xFD => REVERT       => control::revert::<H, SPEC>,
-    0xFE => INVALID      => control::invalid,
+    0xFD => REVERT       => @no_host control::revert::<SPEC>,
+    0xFE => INVALID      => @no_host control::invalid,
     0xFF => SELFDESTRUCT => host::selfdestruct::<H, SPEC>,
 }
 

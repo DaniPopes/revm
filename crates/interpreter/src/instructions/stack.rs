@@ -1,10 +1,10 @@
 use crate::{
     gas,
     primitives::{Spec, U256},
-    Host, InstructionResult, Interpreter,
+    InstructionResult, Interpreter,
 };
 
-pub fn pop<H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn pop(interpreter: &mut Interpreter) {
     gas!(interpreter, gas::BASE);
     if let Err(result) = interpreter.stack.pop() {
         interpreter.instruction_result = result;
@@ -14,7 +14,7 @@ pub fn pop<H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
 /// EIP-3855: PUSH0 instruction
 ///
 /// Introduce a new instruction which pushes the constant value 0 onto the stack.
-pub fn push0<H: Host, SPEC: Spec>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn push0<SPEC: Spec>(interpreter: &mut Interpreter) {
     check!(interpreter, SHANGHAI);
     gas!(interpreter, gas::BASE);
     if let Err(result) = interpreter.stack.push(U256::ZERO) {
@@ -22,7 +22,7 @@ pub fn push0<H: Host, SPEC: Spec>(interpreter: &mut Interpreter, _host: &mut H) 
     }
 }
 
-pub fn push<const N: usize, H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn push<const N: usize>(interpreter: &mut Interpreter) {
     gas!(interpreter, gas::VERYLOW);
     // SAFETY: In analysis we append trailing bytes to the bytecode so that this is safe to do
     // without bounds checking.
@@ -37,14 +37,14 @@ pub fn push<const N: usize, H: Host>(interpreter: &mut Interpreter, _host: &mut 
     interpreter.instruction_pointer = unsafe { ip.add(N) };
 }
 
-pub fn dup<const N: usize, H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn dup<const N: usize>(interpreter: &mut Interpreter) {
     gas!(interpreter, gas::VERYLOW);
     if let Err(result) = interpreter.stack.dup::<N>() {
         interpreter.instruction_result = result;
     }
 }
 
-pub fn swap<const N: usize, H: Host>(interpreter: &mut Interpreter, _host: &mut H) {
+pub fn swap<const N: usize>(interpreter: &mut Interpreter) {
     gas!(interpreter, gas::VERYLOW);
     if let Err(result) = interpreter.stack.swap::<N>() {
         interpreter.instruction_result = result;
