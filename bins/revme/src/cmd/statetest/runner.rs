@@ -365,56 +365,62 @@ pub fn execute_test_suite(
                     .with_cached_prestate(cache)
                     .with_bundle_update()
                     .build();
-                let mut evm = Evm::builder()
-                    .with_db(&mut state)
-                    .modify_env(|e| e.clone_from(&env))
-                    .with_spec_id(spec_id)
-                    .build();
 
                 // do the deed
-                let (e, exec_result) = if trace {
-                    let mut evm = evm
-                        .modify()
-                        .reset_handler_with_external_context(
-                            TracerEip3155::new(Box::new(stderr())).without_summary(),
-                        )
-                        .append_handler_register(inspector_handle_register)
+                let (e, exec_result) = JIT_CONTEXT.with(|jcx| {
+                    let jcx = &mut *jcx.borrow_mut();
+                    let mut evm = Evm::builder()
+                        .with_db(&mut state)
+                        .modify_env(|e| *e = env.clone())
+                        .with_spec_id(spec_id)
+                        .with_external_context(jcx)
+                        .append_handler_register(register_jit_handler)
                         .build();
 
-                    let timer = Instant::now();
-                    let res = evm.transact_commit();
-                    *elapsed.lock().unwrap() += timer.elapsed();
+                    // do the deed
+                    if trace {
+                        let mut evm = evm
+                            .modify()
+                            .reset_handler_with_external_context(TracerEip3155::new(Box::new(
+                                stderr(),
+                            )))
+                            .append_handler_register(inspector_handle_register)
+                            .build();
 
-                    let Err(e) = check_evm_execution(
-                        &test,
-                        unit.out.as_ref(),
-                        &name,
-                        &res,
-                        &evm,
-                        print_json_outcome,
-                    ) else {
-                        continue;
-                    };
-                    // reset external context
-                    (e, res)
-                } else {
-                    let timer = Instant::now();
-                    let res = evm.transact_commit();
-                    *elapsed.lock().unwrap() += timer.elapsed();
+                        let timer = Instant::now();
+                        let res = evm.transact_commit();
+                        *elapsed.lock().unwrap() += timer.elapsed();
 
-                    // dump state and traces if test failed
-                    let output = check_evm_execution(
-                        &test,
-                        unit.out.as_ref(),
-                        &name,
-                        &res,
-                        &evm,
-                        print_json_outcome,
-                    );
-                    let Err(e) = output else {
-                        continue;
-                    };
-                    (e, res)
+                        let output = check_evm_execution(
+                            &test,
+                            unit.out.as_ref(),
+                            &name,
+                            &res,
+                            &evm,
+                            print_json_outcome,
+                        );
+                        // reset external context
+                        (output, res)
+                    } else {
+                        let timer = Instant::now();
+                        let res = evm.transact_commit();
+                        *elapsed.lock().unwrap() += timer.elapsed();
+
+                        // dump state and traces if test failed
+                        let output = check_evm_execution(
+                            &test,
+                            unit.out.as_ref(),
+                            &name,
+                            &res,
+                            &evm,
+                            print_json_outcome,
+                        );
+                        (output, res)
+                    }
+                });
+
+                let Err(e) = e else {
+                    continue;
                 };
 
                 // print only once or
@@ -444,9 +450,10 @@ pub fn execute_test_suite(
                     .with_external_context(TracerEip3155::new(Box::new(stdout())).without_summary())
                     .append_handler_register(inspector_handle_register)
                     .build();
-                let _ = evm.transact_commit();
+                let exec_result_2 = evm.transact_commit().unwrap();
 
                 println!("\nExecution result: {exec_result:#?}");
+                println!("\nExecution result 2: {exec_result_2:#?}");
                 println!("\nExpected exception: {:?}", test.expect_exception);
                 println!("\nState before: {cache_state:#?}");
                 println!("\nState after: {:#?}", evm.context.evm.db.cache);
@@ -569,4 +576,97 @@ pub fn run(
         }
         Err(thread_errors.swap_remove(0))
     }
+}
+
+thread_local! {
+    static JIT_CONTEXT: std::cell::RefCell<JitContext> = std::cell::RefCell::new(JitContext::new());
+}
+
+struct JitContext {
+    ctx: Vec<revmc::EvmCompiler<revmc::EvmLlvmBackend<'static>>>,
+    fns: Vec<Option<revmc::EvmCompilerFn>>,
+    next: usize,
+    contracts: std::collections::HashMap<(Bytes, SpecId), revmc::EvmCompilerFn>,
+    reverse: std::collections::HashMap<revmc::EvmCompilerFn, (Bytes, SpecId)>,
+}
+
+impl JitContext {
+    fn new() -> Self {
+        let n = 1024;
+        let cx = Box::leak(Box::new(revmc::llvm::inkwell::context::Context::create()));
+        Self {
+            ctx: std::iter::repeat_with(|| {
+                revmc::EvmCompiler::new(
+                    revmc::EvmLlvmBackend::new(cx, false, revmc::OptimizationLevel::None).unwrap(),
+                )
+            })
+            .take(n)
+            .collect(),
+            fns: vec![None; n],
+            next: 0,
+            contracts: Default::default(),
+            reverse: Default::default(),
+        }
+    }
+
+    fn get_or_compile(
+        &mut self,
+        address: &revm::primitives::Address,
+        bytecode: Bytes,
+        spec_id: SpecId,
+    ) -> revmc::EvmCompilerFn {
+        let key = (bytecode.clone(), spec_id);
+        if let Some(&f) = self.contracts.get(&key) {
+            // eprintln!(
+            //     "cached: ({:?}, {:?}, {:?})",
+            //     address,
+            //     bytecode.len(),
+            //     spec_id
+            // );
+            return f;
+        }
+
+        let idx = self.next;
+        self.next = (idx + 1) % self.ctx.len();
+        // eprintln!("{idx} -> {}", self.next);
+
+        let module = &mut self.ctx[idx];
+        if let Some(prev_f) = self.fns[idx] {
+            let prev_key = self.reverse.remove(&prev_f).unwrap();
+            self.contracts.remove(&prev_key);
+        }
+
+        let f = Self::compile(module, address, &bytecode, spec_id);
+        self.fns[idx] = Some(f);
+        self.contracts.insert(key.clone(), f);
+        self.reverse.insert(f, key);
+        f
+    }
+
+    fn compile(
+        module: &mut revmc::EvmCompiler<revmc::EvmLlvmBackend<'_>>,
+        address: &revm::primitives::Address,
+        bytecode: &[u8],
+        spec_id: SpecId,
+    ) -> revmc::EvmCompilerFn {
+        let name = format!("_{address}");
+        // eprintln!("compile({:?}, {:?}, {:?})", name, bytecode.len(), spec_id);
+        // eprintln!("{}", hex::encode(bytecode));
+        unsafe { module.clear() }.unwrap();
+        unsafe { module.jit(&name, bytecode, spec_id) }
+            .unwrap_or_else(|e| panic!("failed to compile for {address}: {e}"))
+    }
+}
+
+fn register_jit_handler<DB: revm::Database>(
+    handler: &mut revm::handler::register::EvmHandler<'_, &mut JitContext, DB>,
+) {
+    handler.execution.execute_frame = Arc::new(|frame, memory, _tables, context| {
+        let interpreter = frame.interpreter_mut();
+        let address = &interpreter.contract.target_address;
+        let bytecode = interpreter.contract.bytecode.original_bytes();
+        let spec_id = context.evm.spec_id();
+        let f = context.external.get_or_compile(address, bytecode, spec_id);
+        Ok(unsafe { f.call_with_interpreter_and_memory(interpreter, memory, context) })
+    });
 }

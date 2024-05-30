@@ -22,3 +22,7 @@ debug = true
 [profile.ethtests]
 inherits = "test"
 opt-level = 3
+
+[patch.crates-io]
+revm-interpreter = { path = "crates/interpreter" }
+revm-primitives = { path = "crates/primitives" }

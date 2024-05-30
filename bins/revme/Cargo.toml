@@ -20,7 +20,7 @@ revm = { path = "../../crates/revm", version = "12.1.0", default-features = fals
     "std",
     "serde-json",
     "c-kzg",
-    "blst"
+    "blst",
 ] }
 alloy-rlp = { version = "0.3", default-features = false, features = [
     "arrayvec",
@@ -33,3 +33,7 @@ thiserror = "1.0"
 triehash = "0.8"
 walkdir = "2.5"
 k256 = { version = "0.13.3", features = ["ecdsa"] }
+
+revmc = { path = "../../../../paradigmxyz/revmc/crates/revmc/", features = [
+    "llvm-prefer-dynamic",
+] }
