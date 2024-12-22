@@ -182,9 +182,14 @@ impl<IW: InterpreterTypes> Interpreter<IW> {
         self.control
             .set_next_action(InterpreterAction::None, InstructionResult::Continue);
 
-        // Main loop
+        // Main loop.
         while self.control.instruction_result().is_continue() {
             self.step(instruction_table, host);
+        }
+
+        // Set gas to 0 if it overflowed.
+        if self.control.instruction_result() == InstructionResult::OutOfGas {
+            self.control.gas().spend_all();
         }
 
         // Return next action if it is some.

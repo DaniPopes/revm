@@ -122,15 +122,13 @@ impl Gas {
     /// Records an explicit cost.
     ///
     /// Returns `false` if the gas limit is exceeded.
-    #[inline]
+    /// In this case, the remaining gas will overflow, which should be handled after execution.
+    #[inline(always)]
     #[must_use = "prefer using `gas!` instead to return an out-of-gas error on failure"]
     pub fn record_cost(&mut self, cost: u64) -> bool {
-        let (remaining, overflow) = self.remaining.overflowing_sub(cost);
-        let success = !overflow;
-        if success {
-            self.remaining = remaining;
-        }
-        success
+        let overflow;
+        (self.remaining, overflow) = self.remaining.overflowing_sub(cost);
+        !overflow
     }
 
     /// Record memory expansion
