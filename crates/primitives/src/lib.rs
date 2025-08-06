@@ -46,19 +46,22 @@ pub type StorageKey = U256;
 /// Used to store data values in smart contract storage slots.
 pub type StorageValue = U256;
 
-/// Optimize short address access.
+/// The maximum value of a short address.
+///
+/// This is used to optimize lookups of common short addresses, like precompiles, with a dense map.
 pub const SHORT_ADDRESS_CAP: usize = 300;
 
 /// Returns the short address from Address.
 ///
-/// Short address is considered address that has 18 leading zeros
-/// and last two bytes are less than [`SHORT_ADDRESS_CAP`].
+/// A short address is an address whose value is less than [`SHORT_ADDRESS_CAP`].
+///
+/// See its documentation for more details.
 #[inline]
-pub fn short_address(address: &Address) -> Option<usize> {
-    if address.0[..18].iter().all(|b| *b == 0) {
-        let short_address = u16::from_be_bytes(address.0[18..].try_into().unwrap()) as usize;
-        if short_address < SHORT_ADDRESS_CAP {
-            return Some(short_address);
+pub fn short_address(&address: &Address) -> Option<usize> {
+    let x: alloy_primitives::U160 = address.into();
+    if let Ok(x) = usize::try_from(x) {
+        if x < SHORT_ADDRESS_CAP {
+            return Some(x);
         }
     }
     None
