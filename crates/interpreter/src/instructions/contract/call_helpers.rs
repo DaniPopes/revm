@@ -1,7 +1,7 @@
 use crate::{
     interpreter::Interpreter,
     interpreter_types::{InterpreterTypes as IT, MemoryTr, RuntimeFlag, StackTr},
-    InstructionContext as Icx, InstructionResult,
+    InstructionResult,
 };
 use context_interface::{cfg::GasParams, host::LoadError, Host};
 use core::{cmp::min, ops::Range};
@@ -53,7 +53,8 @@ pub fn resize_memory(
 /// Calculates gas cost and limit for call instructions.
 #[inline(never)]
 pub fn load_acc_and_calc_gas<H: Host + ?Sized>(
-    context: &mut Icx<'_, H, impl IT>,
+    interpreter: &mut Interpreter<impl IT>,
+    host: &mut H,
     to: Address,
     transfers_value: bool,
     create_empty_account: bool,
@@ -61,25 +62,23 @@ pub fn load_acc_and_calc_gas<H: Host + ?Sized>(
 ) -> Result<(u64, Bytecode, B256), InstructionResult> {
     // Transfer value cost
     if transfers_value {
-        gas!(
-            context.interpreter,
-            context.host.gas_params().transfer_value_cost()
-        );
+        gas!(interpreter, host.gas_params().transfer_value_cost());
     }
 
     // load account delegated and deduct dynamic gas.
-    let (gas, state_gas_cost, bytecode, code_hash) =
-        load_account_delegated_handle_error(context, to, transfers_value, create_empty_account)?;
-    let interpreter = &mut context.interpreter;
+    let (gas, state_gas_cost, bytecode, code_hash) = load_account_delegated_handle_error(
+        interpreter,
+        host,
+        to,
+        transfers_value,
+        create_empty_account,
+    )?;
 
     // deduct dynamic gas.
     gas!(interpreter, gas);
 
     // deduct state gas (EIP-8037) if any.
     state_gas!(interpreter, state_gas_cost);
-
-    let interpreter = &mut context.interpreter;
-    let host = &mut context.host;
 
     // EIP-150: Gas cost changes for IO-heavy operations
     let mut gas_limit = if interpreter.runtime_flag.spec_id().is_enabled_in(TANGERINE) {
@@ -106,16 +105,17 @@ pub fn load_acc_and_calc_gas<H: Host + ?Sized>(
 /// Returns `(regular_gas_cost, state_gas_cost, bytecode, code_hash)`.
 #[inline]
 pub fn load_account_delegated_handle_error<H: Host + ?Sized>(
-    context: &mut Icx<'_, H, impl IT>,
+    interpreter: &mut Interpreter<impl IT>,
+    host: &mut H,
     to: Address,
     transfers_value: bool,
     create_empty_account: bool,
 ) -> Result<(u64, u64, Bytecode, B256), InstructionResult> {
     // move this to static gas.
-    let remaining_gas = context.interpreter.gas.remaining();
+    let remaining_gas = interpreter.gas.remaining();
     Ok(load_account_delegated(
-        context.host,
-        context.interpreter.runtime_flag.spec_id(),
+        host,
+        interpreter.runtime_flag.spec_id(),
         remaining_gas,
         to,
         transfers_value,

@@ -8,12 +8,10 @@ use revm::{
     handler::{instructions::EthInstructions, EthPrecompiles},
     inspector::inspectors::TracerEip3155,
     interpreter::{
-        interpreter::EthInterpreter,
         interpreter_types::{Immediates, Jumps},
-        Instruction, InstructionContext,
+        mk_dispatch, Interpreter,
     },
-    primitives::hardfork::SpecId,
-    primitives::TxKind,
+    primitives::{hardfork::SpecId, TxKind},
     state::Bytecode,
     Context, InspectEvm, MainContext,
 };
@@ -42,9 +40,9 @@ pub fn main() {
     // insert our custom opcode
     instructions.insert_instruction(
         MY_STATIC_JUMP,
-        Instruction::new(|ctx: InstructionContext<'_, _, EthInterpreter>| {
-            let offset = ctx.interpreter.bytecode.read_i16();
-            ctx.interpreter.bytecode.relative_jump(offset as isize);
+        mk_dispatch(|interpreter: &mut Interpreter, _host: &mut _| {
+            let offset = interpreter.bytecode.read_i16();
+            interpreter.bytecode.relative_jump(offset as isize);
             Ok(())
         }),
         0,

@@ -697,7 +697,7 @@ fn test_custom_opcode_transaction() {
         context::Evm,
         database::InMemoryDB,
         handler::{instructions::EthInstructions, EthPrecompiles},
-        interpreter::{interpreter::EthInterpreter, Instruction, InstructionContext},
+        interpreter::{interpreter::EthInterpreter, mk_dispatch, Interpreter},
         state::AccountInfo,
     };
 
@@ -742,11 +742,13 @@ fn test_custom_opcode_transaction() {
     let mut instructions = EthInstructions::new_mainnet_with_spec(SpecId::CANCUN);
     instructions.insert_instruction(
         DOUBLE,
-        Instruction::new(|ctx: InstructionContext<'_, _, EthInterpreter>| {
-            revm::interpreter::popn_top!([], val, ctx.interpreter);
-            *val = val.wrapping_mul(U256::from(2));
-            Ok(())
-        }),
+        mk_dispatch(
+            |interpreter: &mut Interpreter<EthInterpreter>, _host: &mut _| {
+                revm::interpreter::popn_top!([], val, interpreter);
+                *val = val.wrapping_mul(U256::from(2));
+                Ok(())
+            },
+        ),
         3, // static gas cost (same as ADD)
     );
 

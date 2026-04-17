@@ -1,7 +1,7 @@
 use auto_impl::auto_impl;
 use interpreter::{
     instructions::{gas_table_spec, GasTable, InstructionTable},
-    Host, Instruction, InterpreterTypes,
+    Host, InstructionEntry, InterpreterTypes,
 };
 use primitives::hardfork::SpecId;
 use std::boxed::Box;
@@ -99,7 +99,7 @@ where
     pub fn insert_instruction(
         &mut self,
         opcode: u8,
-        instruction: Instruction<WIRE, HOST>,
+        instruction: InstructionEntry<WIRE, HOST>,
         gas: u16,
     ) {
         self.inner.instruction_table[opcode as usize] = instruction;

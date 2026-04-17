@@ -8,23 +8,21 @@ use crate::{
 use context_interface::{cfg::GasParams, Host};
 use primitives::{hints_util::cold_path, Bytes, U256};
 
-use crate::InstructionContext as Icx;
-
 /// Implements the JUMP instruction.
 ///
 /// Unconditional jump to a valid destination.
-pub fn jump<ITy: IT, H: ?Sized>(context: Icx<'_, H, ITy>) -> Result {
-    popn!([target], context.interpreter);
-    jump_inner(context.interpreter, target)
+pub fn jump<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
+    popn!([target], interpreter);
+    jump_inner(interpreter, target)
 }
 
 /// Implements the JUMPI instruction.
 ///
 /// Conditional jump to a valid destination if condition is true.
-pub fn jumpi<WIRE: IT, H: ?Sized>(context: Icx<'_, H, WIRE>) -> Result {
-    popn!([target, cond], context.interpreter);
+pub fn jumpi<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
+    popn!([target, cond], interpreter);
     if !cond.is_zero() {
-        jump_inner(context.interpreter, target)?;
+        jump_inner(interpreter, target)?;
     }
     Ok(())
 }
@@ -50,19 +48,16 @@ fn jump_inner<WIRE: IT>(
 /// Implements the JUMPDEST instruction.
 ///
 /// Marks a valid destination for jump operations.
-pub fn jumpdest<WIRE: IT, H: ?Sized>(_context: Icx<'_, H, WIRE>) -> Result {
+pub fn jumpdest() -> Result {
     Ok(())
 }
 
 /// Implements the PC instruction.
 ///
 /// Pushes the current program counter onto the stack.
-pub fn pc<WIRE: IT, H: ?Sized>(context: Icx<'_, H, WIRE>) -> Result {
+pub fn pc<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
     // - 1 because we have already advanced the instruction pointer in `Interpreter::step`
-    push!(
-        context.interpreter,
-        U256::from(context.interpreter.bytecode.pc() - 1)
-    );
+    push!(interpreter, U256::from(interpreter.bytecode.pc() - 1));
     Ok(())
 }
 
@@ -98,35 +93,33 @@ fn return_inner(
 /// Implements the RETURN instruction.
 ///
 /// Halts execution and returns data from memory.
-pub fn ret<WIRE: IT, H: Host + ?Sized>(context: Icx<'_, H, WIRE>) -> Result {
-    return_inner(
-        context.interpreter,
-        context.host.gas_params(),
-        InstructionResult::Return,
-    )
+pub fn ret<WIRE: IT, H: Host + ?Sized>(
+    interpreter: &mut Interpreter<WIRE>,
+    host: &mut H,
+) -> Result {
+    return_inner(interpreter, host.gas_params(), InstructionResult::Return)
 }
 
 /// EIP-140: REVERT instruction
-pub fn revert<WIRE: IT, H: Host + ?Sized>(context: Icx<'_, H, WIRE>) -> Result {
-    check!(context.interpreter, BYZANTIUM);
-    return_inner(
-        context.interpreter,
-        context.host.gas_params(),
-        InstructionResult::Revert,
-    )
+pub fn revert<WIRE: IT, H: Host + ?Sized>(
+    interpreter: &mut Interpreter<WIRE>,
+    host: &mut H,
+) -> Result {
+    check!(interpreter, BYZANTIUM);
+    return_inner(interpreter, host.gas_params(), InstructionResult::Revert)
 }
 
 /// Stop opcode. This opcode halts the execution.
-pub fn stop<WIRE: IT, H: ?Sized>(_context: Icx<'_, H, WIRE>) -> Result {
+pub fn stop() -> Result {
     Err(InstructionResult::Stop)
 }
 
 /// Invalid opcode. This opcode halts the execution.
-pub fn invalid<WIRE: IT, H: ?Sized>(_context: Icx<'_, H, WIRE>) -> Result {
+pub fn invalid() -> Result {
     Err(InstructionResult::InvalidFEOpcode)
 }
 
 /// Unknown opcode. This opcode halts the execution.
-pub fn unknown<WIRE: IT, H: ?Sized>(_context: Icx<'_, H, WIRE>) -> Result {
+pub fn unknown() -> Result {
     Err(InstructionResult::OpcodeNotFound)
 }

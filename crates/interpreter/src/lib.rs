@@ -12,8 +12,6 @@ mod macros;
 
 /// Gas calculation utilities and constants.
 pub mod gas;
-/// Context passed to instruction implementations.
-pub mod instruction_context;
 /// Instruction execution results and success/error types.
 mod instruction_result;
 /// EVM instruction implementations organized by category.
@@ -37,9 +35,10 @@ pub use context_interface::{
     host, CreateScheme, Host,
 };
 pub use gas::Gas;
-pub use instruction_context::InstructionContext;
 pub use instruction_result::*;
-pub use instructions::{gas_table, instruction_table, GasTable, Instruction, InstructionTable};
+pub use instructions::{
+    gas_table, instruction_table, mk_dispatch, GasTable, Instr, InstructionEntry, InstructionTable,
+};
 pub use interpreter::{
     num_words, InputsImpl, Interpreter, InterpreterResult, SharedMemory, Stack, STACK_LIMIT,
 };

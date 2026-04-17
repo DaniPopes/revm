@@ -18,8 +18,8 @@ pub use stack::{Stack, STACK_LIMIT};
 
 // imports
 use crate::{
-    instruction_context::InstructionContext, interpreter_types::*, Gas, GasTable, Host,
-    InstructionExecResult, InstructionResult, InstructionTable, InterpreterAction,
+    interpreter_types::*, Gas, GasTable, Host, InstructionExecResult, InstructionResult,
+    InstructionTable, InterpreterAction,
 };
 use bytecode::Bytecode;
 use context_interface::{cfg::GasParams, host::LoadError};
@@ -289,6 +289,24 @@ impl<IW: InterpreterTypes> Interpreter<IW> {
         ));
     }
 
+    #[inline(always)]
+    fn pre_step(&mut self, gas_table: &GasTable) -> InstructionExecResult<u8> {
+        let opcode = self.bytecode.opcode();
+
+        // SAFETY: In analysis we are doing padding of bytecode so that we are sure that last
+        // byte instruction is STOP so we are safe to just increment program_counter bcs on last instruction
+        // it will do noop and just stop execution of this contract
+        self.bytecode.relative_jump(1);
+
+        let static_gas = gas_table[opcode as usize];
+        if self.gas.record_cost_unsafe(static_gas as u64) {
+            cold_path();
+            return Err(InstructionResult::OutOfGas);
+        }
+
+        Ok(opcode)
+    }
+
     /// Executes the instruction at the current instruction pointer.
     ///
     /// Internally it will increment instruction pointer by one.
@@ -299,27 +317,9 @@ impl<IW: InterpreterTypes> Interpreter<IW> {
         gas_table: &GasTable,
         host: &mut H,
     ) -> InstructionExecResult {
-        // Get current opcode.
-        let opcode = self.bytecode.opcode();
-
-        // SAFETY: In analysis we are doing padding of bytecode so that we are sure that last
-        // byte instruction is STOP so we are safe to just increment program_counter bcs on last instruction
-        // it will do noop and just stop execution of this contract
-        self.bytecode.relative_jump(1);
-
-        // SAFETY: `opcode` is a `u8` and both tables have 256 entries.
-        let instruction = unsafe { instruction_table.get_unchecked(opcode as usize) };
-        let static_gas = unsafe { *gas_table.get_unchecked(opcode as usize) };
-
-        if self.gas.record_cost_unsafe(static_gas as u64) {
-            cold_path();
-            return Err(InstructionResult::OutOfGas);
-        }
-
-        instruction.execute(InstructionContext {
-            interpreter: self,
-            host,
-        })
+        let opcode = self.pre_step(gas_table)?;
+        let instruction = instruction_table[opcode as usize];
+        instruction(self, host)
     }
 
     /// Executes the interpreter until it returns or stops.
@@ -332,6 +332,44 @@ impl<IW: InterpreterTypes> Interpreter<IW> {
     ) -> InterpreterAction {
         let e = loop {
             if let Err(e) = self.step(instruction_table, gas_table, host) {
+                cold_path();
+                break e;
+            }
+        };
+        if self.bytecode.action().is_none() {
+            self.halt(e);
+        }
+        debug_assert!(self.bytecode.is_end());
+        self.take_next_action()
+    }
+
+    /// Executes the interpreter using a match dispatch loop instead of an instruction table.
+    ///
+    /// This avoids function pointer indirection by inlining all instruction implementations
+    /// directly into a match statement, which can be more amenable to compiler optimizations.
+    #[inline]
+    #[allow(dead_code)]
+    fn run_match<H: Host + ?Sized>(&mut self, gt: &GasTable, host: &mut H) -> InterpreterAction {
+        use crate::instructions::*;
+
+        let e = loop {
+            let opcode = match self.pre_step(gt) {
+                Ok(opcode) => opcode,
+                Err(e) => {
+                    cold_path();
+                    break e;
+                }
+            };
+
+            macro_rules! make_match {
+                ([] $(($op:ident, $fn:expr),)*) => {
+                    match opcode {
+                        $(bytecode::opcode::$op => Instr::execute($fn, self, host),)*
+                        _ => Instr::execute(control::unknown, self, host),
+                    }
+                };
+            }
+            if let Err(e) = bytecode::for_each_opcode!([] make_match) {
                 cold_path();
                 break e;
             }
