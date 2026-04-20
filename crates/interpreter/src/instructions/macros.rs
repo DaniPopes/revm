@@ -4,8 +4,8 @@
 #[macro_export]
 #[collapse_debuginfo(yes)]
 macro_rules! require_non_staticcall {
-    ($interpreter:expr) => {
-        if $interpreter.runtime_flag.is_static() {
+    ($runtime_flag:expr) => {
+        if $runtime_flag.is_static() {
             $crate::primitives::hints_util::cold_path();
             return Err($crate::InstructionResult::StateChangeDuringStaticCall);
         }
@@ -16,9 +16,8 @@ macro_rules! require_non_staticcall {
 #[macro_export]
 #[collapse_debuginfo(yes)]
 macro_rules! check {
-    ($interpreter:expr, $min:ident) => {
-        if !$interpreter
-            .runtime_flag
+    ($runtime_flag:expr, $min:ident) => {
+        if !$runtime_flag
             .spec_id()
             .is_enabled_in(primitives::hardfork::SpecId::$min)
         {
@@ -33,8 +32,8 @@ macro_rules! check {
 #[macro_export]
 #[collapse_debuginfo(yes)]
 macro_rules! state_gas {
-    ($interpreter:expr, $gas:expr) => {{
-        if !$interpreter.gas.record_state_cost($gas) {
+    ($gas:expr, $cost:expr) => {{
+        if !$gas.record_state_cost($cost) {
             $crate::primitives::hints_util::cold_path();
             return Err($crate::InstructionResult::OutOfGas);
         }
@@ -45,8 +44,8 @@ macro_rules! state_gas {
 #[macro_export]
 #[collapse_debuginfo(yes)]
 macro_rules! gas {
-    ($interpreter:expr, $gas:expr) => {
-        if !$interpreter.gas.record_regular_cost($gas) {
+    ($gas:expr, $cost:expr) => {
+        if !$gas.record_regular_cost($cost) {
             $crate::primitives::hints_util::cold_path();
             return Err($crate::InstructionResult::OutOfGas);
         }
@@ -57,8 +56,8 @@ macro_rules! gas {
 #[macro_export]
 #[collapse_debuginfo(yes)]
 macro_rules! popn {
-    ([ $($x:ident),* ],$interpreter:expr) => {
-        let Some([$( $x ),*]) = $interpreter.stack.popn() else {
+    ([ $($x:ident),* ], $stack:expr) => {
+        let Some([$( $x ),*]) = $stack.popn() else {
             $crate::primitives::hints_util::cold_path();
             return Err($crate::InstructionResult::StackUnderflow);
         };
@@ -78,20 +77,13 @@ macro_rules! _count {
 #[macro_export]
 #[collapse_debuginfo(yes)]
 macro_rules! popn_top {
-    ([ $($x:ident),* ], $top:ident, $interpreter:expr) => {
-        /*
-        let Some(([$( $x ),*], $top)) = $interpreter.stack.popn_top() else {
-            $crate::primitives::hints_util::cold_path();
-            return Err($crate::InstructionResult::StackUnderflow);
-        };
-        */
-
+    ([ $($x:ident),* ], $top:ident, $stack:expr) => {
         // Workaround for https://github.com/rust-lang/rust/issues/144329.
-        if $interpreter.stack.len() < (1 + $crate::_count!($($x)*)) {
+        if $stack.len() < (1 + $crate::_count!($($x)*)) {
             $crate::primitives::hints_util::cold_path();
             return Err($crate::InstructionResult::StackUnderflow);
         }
-        let ([$( $x ),*], $top) = unsafe { $crate::interpreter_types::StackTr::popn_top(&mut $interpreter.stack).unwrap_unchecked() };
+        let ([$( $x ),*], $top) = unsafe { $stack.popn_top().unwrap_unchecked() };
     };
 }
 
@@ -99,8 +91,8 @@ macro_rules! popn_top {
 #[macro_export]
 #[collapse_debuginfo(yes)]
 macro_rules! push {
-    ($interpreter:expr, $x:expr) => {
-        if !$interpreter.stack.push($x) {
+    ($stack:expr, $x:expr) => {
+        if !$stack.push($x) {
             $crate::primitives::hints_util::cold_path();
             return Err($crate::InstructionResult::StackOverflow);
         }
@@ -129,7 +121,7 @@ macro_rules! as_usize_saturated {
 #[macro_export]
 #[collapse_debuginfo(yes)]
 macro_rules! as_usize_or_fail {
-    ($interpreter:expr, $v:expr) => {
+    ($v:expr) => {
         match $v.as_limbs() {
             x => {
                 if (x[0] > usize::MAX as u64) | (x[1] != 0) | (x[2] != 0) | (x[3] != 0) {

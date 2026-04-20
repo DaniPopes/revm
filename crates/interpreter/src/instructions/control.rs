@@ -11,18 +11,18 @@ use primitives::{hints_util::cold_path, Bytes, U256};
 /// Implements the JUMP instruction.
 ///
 /// Unconditional jump to a valid destination.
-pub fn jump<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    popn!([target], interpreter);
-    jump_inner(interpreter, target)
+pub fn jump(stack: &mut impl StackTr, bytecode: &mut impl Jumps) -> Result {
+    popn!([target], stack);
+    jump_inner(bytecode, target)
 }
 
 /// Implements the JUMPI instruction.
 ///
 /// Conditional jump to a valid destination if condition is true.
-pub fn jumpi<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    popn!([target, cond], interpreter);
+pub fn jumpi(stack: &mut impl StackTr, bytecode: &mut impl Jumps) -> Result {
+    popn!([target, cond], stack);
     if !cond.is_zero() {
-        jump_inner(interpreter, target)?;
+        jump_inner(bytecode, target)?;
     }
     Ok(())
 }
@@ -31,17 +31,14 @@ pub fn jumpi<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
 ///
 /// Validates jump target and performs the actual jump.
 #[inline(always)]
-fn jump_inner<WIRE: IT>(
-    interpreter: &mut Interpreter<WIRE>,
-    target: U256,
-) -> Result<(), InstructionResult> {
+fn jump_inner(bytecode: &mut impl Jumps, target: U256) -> Result<(), InstructionResult> {
     let target = as_usize_saturated!(target);
-    if !interpreter.bytecode.is_valid_legacy_jump(target) {
+    if !bytecode.is_valid_legacy_jump(target) {
         cold_path();
         return Err(InstructionResult::InvalidJump);
     }
     // SAFETY: `is_valid_jump` ensures that `dest` is in bounds.
-    interpreter.bytecode.absolute_jump(target);
+    bytecode.absolute_jump(target);
     Ok(())
 }
 
@@ -55,9 +52,9 @@ pub fn jumpdest() -> Result {
 /// Implements the PC instruction.
 ///
 /// Pushes the current program counter onto the stack.
-pub fn pc<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
+pub fn pc(stack: &mut impl StackTr, bytecode: &impl Jumps) -> Result {
     // - 1 because we have already advanced the instruction pointer in `Interpreter::step`
-    push!(interpreter, U256::from(interpreter.bytecode.pc() - 1));
+    push!(stack, U256::from(bytecode.pc() - 1));
     Ok(())
 }
 
@@ -70,12 +67,12 @@ fn return_inner(
     gas_params: &GasParams,
     instruction_result: InstructionResult,
 ) -> Result<(), InstructionResult> {
-    popn!([offset, len], interpreter);
-    let len = as_usize_or_fail!(interpreter, len);
+    popn!([offset, len], interpreter.stack);
+    let len = as_usize_or_fail!(len);
     // Important: Offset must be ignored if len is zeros
     let mut output = Bytes::default();
     if len != 0 {
-        let offset = as_usize_or_fail!(interpreter, offset);
+        let offset = as_usize_or_fail!(offset);
         interpreter.resize_memory(gas_params, offset, len)?;
         output = interpreter.memory.slice_len(offset, len).to_vec().into()
     }
@@ -93,19 +90,13 @@ fn return_inner(
 /// Implements the RETURN instruction.
 ///
 /// Halts execution and returns data from memory.
-pub fn ret<WIRE: IT, H: Host + ?Sized>(
-    interpreter: &mut Interpreter<WIRE>,
-    host: &mut H,
-) -> Result {
+pub fn ret<I: IT, H: Host + ?Sized>(interpreter: &mut Interpreter<I>, host: &mut H) -> Result {
     return_inner(interpreter, host.gas_params(), InstructionResult::Return)
 }
 
 /// EIP-140: REVERT instruction
-pub fn revert<WIRE: IT, H: Host + ?Sized>(
-    interpreter: &mut Interpreter<WIRE>,
-    host: &mut H,
-) -> Result {
-    check!(interpreter, BYZANTIUM);
+pub fn revert<I: IT, H: Host + ?Sized>(interpreter: &mut Interpreter<I>, host: &mut H) -> Result {
+    check!(interpreter.runtime_flag, BYZANTIUM);
     return_inner(interpreter, host.gas_params(), InstructionResult::Revert)
 }
 

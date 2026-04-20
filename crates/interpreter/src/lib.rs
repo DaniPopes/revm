@@ -37,7 +37,8 @@ pub use context_interface::{
 pub use gas::Gas;
 pub use instruction_result::*;
 pub use instructions::{
-    gas_table, instruction_table, mk_dispatch, GasTable, Instr, InstructionEntry, InstructionTable,
+    gas_table, instruction_table, mk_dispatch, GasTable, Instruction, InstructionEntry,
+    InstructionTable,
 };
 pub use interpreter::{
     num_words, InputsImpl, Interpreter, InterpreterResult, SharedMemory, Stack, STACK_LIMIT,

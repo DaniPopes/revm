@@ -33,82 +33,75 @@ use crate::{interpreter_types::InterpreterTypes, Host, InstructionExecResult, In
 use primitives::hardfork::SpecId;
 
 /// EVM opcode function pointer.
-pub type InstructionEntry<W, H> = fn(&mut Interpreter<W>, &mut H) -> InstructionExecResult;
+pub type InstructionEntry<I, H> = fn(&mut Interpreter<I>, &mut H) -> InstructionExecResult;
 
-/// Trait for implementing EVM instructions with varying argument signatures.
+/// Trait for decomposed instruction dispatch.
 ///
-/// Instructions are zero-sized function types that take only the arguments they need.
-/// The `T` parameter represents the argument tuple type for overloaded dispatch.
-///
-/// Use [`mk_dispatch`] to convert an `Instr` implementation into a uniform
-/// [`InstructionEntry`] function pointer for the instruction table.
-pub trait Instr<T, W: InterpreterTypes, H: ?Sized>: Sized {
-    /// Creates a new instance of this instruction.
-    ///
-    /// This is always valid because instruction types must be ZSTs.
+/// `T` is a marker type selecting which interpreter fields to pass.
+pub trait Instruction<T, I: InterpreterTypes, H: Host + ?Sized>: Sized {
+    /// Constructs a ZST instruction from nothing.
     fn new() -> Self {
         const { assert!(size_of::<Self>() == 0) };
         // SAFETY: `Self` is a ZST.
         unsafe { core::mem::zeroed::<Self>() }
     }
-
     /// Executes the instruction.
-    fn execute(
-        self,
-        interpreter: &mut crate::Interpreter<W>,
-        host: &mut H,
-    ) -> InstructionExecResult;
+    fn execute(self, interp: &mut Interpreter<I>, host: &mut H) -> InstructionExecResult;
 }
 
-macro_rules! impl_instr {
-    (($($t:ty),* $(,)?) = |$interp:ident, $host:ident| ($($e:tt)*)) => {
-        impl<W: InterpreterTypes, H: Host + ?Sized, F: FnOnce($($t,)*) -> InstructionExecResult> Instr<($($t,)*), W, H> for F {
+macro_rules! impl_instruction {
+    ($marker:ident; ($($t:ty),* $(,)?) = |$interp:ident, $host:ident| ($($e:tt)*)) => {
+        #[doc(hidden)]
+        #[derive(Debug)]
+        pub enum $marker {}
+        impl<F: FnOnce($($t,)*) -> InstructionExecResult, I: InterpreterTypes, H: Host + ?Sized> Instruction<$marker, I, H> for F {
             #[inline(always)]
-            fn execute(
-                self,
-                $interp: &mut crate::Interpreter<W>,
-                $host: &mut H,
-            ) -> InstructionExecResult {
+            fn execute(self, $interp: &mut Interpreter<I>, $host: &mut H) -> InstructionExecResult {
                 self($($e)*)
             }
         }
     };
 }
 
-impl_instr!(() = |_interp, _host| ());
-impl_instr!((&mut crate::Interpreter<W>) = |interp, _host| (interp));
-impl_instr!((&mut crate::Interpreter<W>, &mut H) = |interp, host| (interp, host));
+impl_instruction!(NoArgs; () = |_interp, _host| ());
+impl_instruction!(S; (&mut I::Stack,) = |interp, _host| (&mut interp.stack));
+impl_instruction!(SRf; (&mut I::Stack, &I::RuntimeFlag) = |interp, _host| (&mut interp.stack, &interp.runtime_flag));
+impl_instruction!(SBr; (&mut I::Stack, &I::Bytecode) = |interp, _host| (&mut interp.stack, &interp.bytecode));
+impl_instruction!(SB; (&mut I::Stack, &mut I::Bytecode) = |interp, _host| (&mut interp.stack, &mut interp.bytecode));
+impl_instruction!(SBRf; (&mut I::Stack, &mut I::Bytecode, &I::RuntimeFlag) = |interp, _host| (&mut interp.stack, &mut interp.bytecode, &interp.runtime_flag));
+impl_instruction!(SI; (&mut I::Stack, &I::Input) = |interp, _host| (&mut interp.stack, &interp.input));
+impl_instruction!(SIM; (&mut I::Stack, &I::Input, &I::Memory) = |interp, _host| (&mut interp.stack, &interp.input, &interp.memory));
+impl_instruction!(SG; (&mut I::Stack, &crate::Gas) = |interp, _host| (&mut interp.stack, &interp.gas));
+impl_instruction!(SM; (&mut I::Stack, &I::Memory) = |interp, _host| (&mut interp.stack, &interp.memory));
+impl_instruction!(SRfRd; (&mut I::Stack, &I::RuntimeFlag, &I::ReturnData) = |interp, _host| (&mut interp.stack, &interp.runtime_flag, &interp.return_data));
+impl_instruction!(IH; (&mut Interpreter<I>, &mut H) = |interp, host| (interp, host));
 
-/// Wraps an [`Instr`] implementation into a uniform [`InstructionEntry`] for the
-/// instruction table.
-///
-/// This erases the specific argument signature, producing a single function pointer type
-/// that can be stored in the table.
+/// Wraps an [`Instruction`] into an [`InstructionEntry`] function pointer.
 #[inline(always)]
-pub const fn mk_dispatch<I: Instr<T, W, H>, T, W: InterpreterTypes, H: Host + ?Sized>(
-    f: I,
-) -> InstructionEntry<W, H> {
+pub const fn mk_dispatch<F: Instruction<T, I, H>, T, I: InterpreterTypes, H: Host + ?Sized>(
+    f: F,
+) -> InstructionEntry<I, H> {
     core::mem::forget(f);
-    dispatch::<I, T, W, H>
+    dispatch::<F, T, I, H>
 }
 
-fn dispatch<I: Instr<T, W, H>, T, W: InterpreterTypes, H: Host + ?Sized>(
-    interpreter: &mut Interpreter<W>,
+fn dispatch<F: Instruction<T, I, H>, T, I: InterpreterTypes, H: Host + ?Sized>(
+    interpreter: &mut Interpreter<I>,
     host: &mut H,
 ) -> InstructionExecResult {
-    I::new().execute(interpreter, host)
+    F::new().execute(interpreter, host)
 }
 
 /// Instruction table is list of instruction function pointers mapped to 256 EVM opcodes.
-pub type InstructionTable<W, H> = [InstructionEntry<W, H>; 256];
+pub type InstructionTable<I, H> = [InstructionEntry<I, H>; 256];
 
 /// Static gas cost table mapped to 256 EVM opcodes.
 pub type GasTable = [u16; 256];
 
 /// Returns the default instruction table for the given interpreter types and host.
 #[inline]
-pub const fn instruction_table<WIRE: InterpreterTypes, H: Host>() -> InstructionTable<WIRE, H> {
-    const { instruction_table_impl::<WIRE, H>() }
+pub const fn instruction_table<I: InterpreterTypes, H: Host>() -> InstructionTable<I, H> {
+    const { instruction_table_impl::<I, H>() }
 }
 
 /// Returns the default gas table.
@@ -160,16 +153,12 @@ pub fn gas_table_spec(spec: SpecId) -> GasTable {
     table
 }
 
-const fn instruction_table_impl<WIRE: InterpreterTypes, H: Host>() -> InstructionTable<WIRE, H> {
+const fn instruction_table_impl<I: InterpreterTypes, H: Host>() -> InstructionTable<I, H> {
     use bytecode::opcode::*;
-    let mut table = [mk_dispatch(control::unknown); 256];
+    let mut table = [mk_dispatch::<_, NoArgs, I, H>(control::unknown); 256];
     macro_rules! fill_table {
-        ([] $(
-            ($op:ident, $fn:expr),
-        )*) => {
-            $(
-                table[$op as usize] = mk_dispatch($fn);
-            )*
+        ([] $(($op:ident, ($($f:tt)*)),)*) => {
+            $(table[$op as usize] = mk_dispatch::<_, opcode_shape!($op), I, H>($($f)*);)*
         };
     }
     bytecode::for_each_opcode!([] fill_table);

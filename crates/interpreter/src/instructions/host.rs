@@ -33,11 +33,8 @@ fn load_account<'a, H: Host + ?Sized>(
 /// Implements the BALANCE instruction.
 ///
 /// Gets the balance of the given account.
-pub fn balance<WIRE: IT, H: Host + ?Sized>(
-    interpreter: &mut Interpreter<WIRE>,
-    host: &mut H,
-) -> Result {
-    popn_top!([], top, interpreter);
+pub fn balance<I: IT, H: Host + ?Sized>(interpreter: &mut Interpreter<I>, host: &mut H) -> Result {
+    popn_top!([], top, interpreter.stack);
     let address = top.into_address();
     let account = load_account(&mut interpreter.gas, host, address, false)?;
     *top = account.balance;
@@ -45,27 +42,27 @@ pub fn balance<WIRE: IT, H: Host + ?Sized>(
 }
 
 /// EIP-1884: Repricing for trie-size-dependent opcodes
-pub fn selfbalance<WIRE: IT, H: Host + ?Sized>(
-    interpreter: &mut Interpreter<WIRE>,
+pub fn selfbalance<I: IT, H: Host + ?Sized>(
+    interpreter: &mut Interpreter<I>,
     host: &mut H,
 ) -> Result {
-    check!(interpreter, ISTANBUL);
+    check!(interpreter.runtime_flag, ISTANBUL);
 
     let balance = host
         .balance(interpreter.input.target_address())
         .ok_or(InstructionResult::FatalExternalError)?;
-    push!(interpreter, balance.data);
+    push!(interpreter.stack, balance.data);
     Ok(())
 }
 
 /// Implements the EXTCODESIZE instruction.
 ///
 /// Gets the size of an account's code.
-pub fn extcodesize<WIRE: IT, H: Host + ?Sized>(
-    interpreter: &mut Interpreter<WIRE>,
+pub fn extcodesize<I: IT, H: Host + ?Sized>(
+    interpreter: &mut Interpreter<I>,
     host: &mut H,
 ) -> Result {
-    popn_top!([], top, interpreter);
+    popn_top!([], top, interpreter.stack);
     let address = top.into_address();
     let account = load_account(&mut interpreter.gas, host, address, true)?;
     // safe to unwrap because we are loading code
@@ -74,12 +71,12 @@ pub fn extcodesize<WIRE: IT, H: Host + ?Sized>(
 }
 
 /// EIP-1052: EXTCODEHASH opcode
-pub fn extcodehash<WIRE: IT, H: Host + ?Sized>(
-    interpreter: &mut Interpreter<WIRE>,
+pub fn extcodehash<I: IT, H: Host + ?Sized>(
+    interpreter: &mut Interpreter<I>,
     host: &mut H,
 ) -> Result {
-    check!(interpreter, CONSTANTINOPLE);
-    popn_top!([], top, interpreter);
+    check!(interpreter.runtime_flag, CONSTANTINOPLE);
+    popn_top!([], top, interpreter.stack);
     let address = top.into_address();
     let account = load_account(&mut interpreter.gas, host, address, false)?;
     // if account is empty, code hash is zero
@@ -95,21 +92,24 @@ pub fn extcodehash<WIRE: IT, H: Host + ?Sized>(
 /// Implements the EXTCODECOPY instruction.
 ///
 /// Copies a portion of an account's code to memory.
-pub fn extcodecopy<WIRE: IT, H: Host + ?Sized>(
-    interpreter: &mut Interpreter<WIRE>,
+pub fn extcodecopy<I: IT, H: Host + ?Sized>(
+    interpreter: &mut Interpreter<I>,
     host: &mut H,
 ) -> Result {
-    popn!([address, memory_offset, code_offset, len_u256], interpreter);
+    popn!(
+        [address, memory_offset, code_offset, len_u256],
+        interpreter.stack
+    );
     let address = address.into_address();
 
-    let len = as_usize_or_fail!(interpreter, len_u256);
-    gas!(interpreter, host.gas_params().extcodecopy(len));
+    let len = as_usize_or_fail!(len_u256);
+    gas!(interpreter.gas, host.gas_params().extcodecopy(len));
 
     let mut memory_offset_usize = 0;
     // resize memory only if len is not zero
     if len != 0 {
         // fail on casting of memory_offset only if len is not zero.
-        memory_offset_usize = as_usize_or_fail!(interpreter, memory_offset);
+        memory_offset_usize = as_usize_or_fail!(memory_offset);
         // Resize memory to fit the code
         interpreter.resize_memory(host.gas_params(), memory_offset_usize, len)?;
     }
@@ -130,11 +130,11 @@ pub fn extcodecopy<WIRE: IT, H: Host + ?Sized>(
 /// Implements the BLOCKHASH instruction.
 ///
 /// Gets the hash of one of the 256 most recent complete blocks.
-pub fn blockhash<WIRE: IT, H: Host + ?Sized>(
-    interpreter: &mut Interpreter<WIRE>,
+pub fn blockhash<I: IT, H: Host + ?Sized>(
+    interpreter: &mut Interpreter<I>,
     host: &mut H,
 ) -> Result {
-    popn_top!([], number, interpreter);
+    popn_top!([], number, interpreter.stack);
 
     let requested_number = *number;
     let block_number = host.block_number();
@@ -166,11 +166,8 @@ pub fn blockhash<WIRE: IT, H: Host + ?Sized>(
 /// Implements the SLOAD instruction.
 ///
 /// Loads a word from storage.
-pub fn sload<WIRE: IT, H: Host + ?Sized>(
-    interpreter: &mut Interpreter<WIRE>,
-    host: &mut H,
-) -> Result {
-    popn_top!([], index, interpreter);
+pub fn sload<I: IT, H: Host + ?Sized>(interpreter: &mut Interpreter<I>, host: &mut H) -> Result {
+    popn_top!([], index, interpreter.stack);
     let spec_id = interpreter.runtime_flag.spec_id();
     let target = interpreter.input.target_address();
 
@@ -179,7 +176,7 @@ pub fn sload<WIRE: IT, H: Host + ?Sized>(
         let skip_cold = interpreter.gas.remaining() < additional_cold_cost;
         let storage = host.sload_skip_cold_load(target, *index, skip_cold)?;
         if storage.is_cold {
-            gas!(interpreter, additional_cold_cost);
+            gas!(interpreter.gas, additional_cold_cost);
         }
         *index = storage.data;
     } else {
@@ -194,12 +191,9 @@ pub fn sload<WIRE: IT, H: Host + ?Sized>(
 /// Implements the SSTORE instruction.
 ///
 /// Stores a word to storage.
-pub fn sstore<WIRE: IT, H: Host + ?Sized>(
-    interpreter: &mut Interpreter<WIRE>,
-    host: &mut H,
-) -> Result {
-    require_non_staticcall!(interpreter);
-    popn!([index, value], interpreter);
+pub fn sstore<I: IT, H: Host + ?Sized>(interpreter: &mut Interpreter<I>, host: &mut H) -> Result {
+    require_non_staticcall!(interpreter.runtime_flag);
+    popn!([index, value], interpreter.stack);
 
     let target = interpreter.input.target_address();
     let spec_id = interpreter.runtime_flag.spec_id();
@@ -212,7 +206,7 @@ pub fn sstore<WIRE: IT, H: Host + ?Sized>(
         return Err(InstructionResult::ReentrancySentryOOG);
     }
 
-    gas!(interpreter, host.gas_params().sstore_static_gas());
+    gas!(interpreter.gas, host.gas_params().sstore_static_gas());
 
     let state_load = if spec_id.is_enabled_in(BERLIN) {
         let additional_cold_cost = host.gas_params().cold_storage_additional_cost();
@@ -227,7 +221,7 @@ pub fn sstore<WIRE: IT, H: Host + ?Sized>(
 
     // dynamic gas
     gas!(
-        interpreter,
+        interpreter.gas,
         host.gas_params()
             .sstore_dynamic_gas(is_istanbul, &state_load.data, state_load.is_cold)
     );
@@ -235,7 +229,7 @@ pub fn sstore<WIRE: IT, H: Host + ?Sized>(
     // state gas for new slot creation (EIP-8037)
     if host.is_amsterdam_eip8037_enabled() {
         state_gas!(
-            interpreter,
+            interpreter.gas,
             host.gas_params().sstore_state_gas(&state_load.data)
         );
     }
@@ -250,13 +244,10 @@ pub fn sstore<WIRE: IT, H: Host + ?Sized>(
 
 /// EIP-1153: Transient storage opcodes
 /// Store value to transient storage
-pub fn tstore<WIRE: IT, H: Host + ?Sized>(
-    interpreter: &mut Interpreter<WIRE>,
-    host: &mut H,
-) -> Result {
-    check!(interpreter, CANCUN);
-    require_non_staticcall!(interpreter);
-    popn!([index, value], interpreter);
+pub fn tstore<I: IT, H: Host + ?Sized>(interpreter: &mut Interpreter<I>, host: &mut H) -> Result {
+    check!(interpreter.runtime_flag, CANCUN);
+    require_non_staticcall!(interpreter.runtime_flag);
+    popn!([index, value], interpreter.stack);
 
     host.tstore(interpreter.input.target_address(), index, value);
     Ok(())
@@ -264,12 +255,9 @@ pub fn tstore<WIRE: IT, H: Host + ?Sized>(
 
 /// EIP-1153: Transient storage opcodes
 /// Load value from transient storage
-pub fn tload<WIRE: IT, H: Host + ?Sized>(
-    interpreter: &mut Interpreter<WIRE>,
-    host: &mut H,
-) -> Result {
-    check!(interpreter, CANCUN);
-    popn_top!([], index, interpreter);
+pub fn tload<I: IT, H: Host + ?Sized>(interpreter: &mut Interpreter<I>, host: &mut H) -> Result {
+    check!(interpreter.runtime_flag, CANCUN);
+    popn_top!([], index, interpreter.stack);
 
     *index = host.tload(interpreter.input.target_address(), *index);
     Ok(())
@@ -282,15 +270,18 @@ pub fn log<const N: usize, H: Host + ?Sized>(
     interpreter: &mut Interpreter<impl IT>,
     host: &mut H,
 ) -> Result {
-    require_non_staticcall!(interpreter);
+    require_non_staticcall!(interpreter.runtime_flag);
 
-    popn!([offset, len], interpreter);
-    let len = as_usize_or_fail!(interpreter, len);
-    gas!(interpreter, host.gas_params().log_cost(N as u8, len as u64));
+    popn!([offset, len], interpreter.stack);
+    let len = as_usize_or_fail!(len);
+    gas!(
+        interpreter.gas,
+        host.gas_params().log_cost(N as u8, len as u64)
+    );
     let data = if len == 0 {
         Bytes::new()
     } else {
-        let offset = as_usize_or_fail!(interpreter, offset);
+        let offset = as_usize_or_fail!(offset);
         // Resize memory to fit the data
         interpreter.resize_memory(host.gas_params(), offset, len)?;
         Bytes::copy_from_slice(interpreter.memory.slice_len(offset, len).as_ref())
@@ -312,12 +303,12 @@ pub fn log<const N: usize, H: Host + ?Sized>(
 /// Implements the SELFDESTRUCT instruction.
 ///
 /// Halt execution and register account for later deletion.
-pub fn selfdestruct<WIRE: IT, H: Host + ?Sized>(
-    interpreter: &mut Interpreter<WIRE>,
+pub fn selfdestruct<I: IT, H: Host + ?Sized>(
+    interpreter: &mut Interpreter<I>,
     host: &mut H,
 ) -> Result {
-    require_non_staticcall!(interpreter);
-    popn!([target], interpreter);
+    require_non_staticcall!(interpreter.runtime_flag);
+    popn!([target], interpreter.stack);
     let target = target.into_address();
     let spec = interpreter.runtime_flag.spec_id();
 
@@ -334,14 +325,14 @@ pub fn selfdestruct<WIRE: IT, H: Host + ?Sized>(
     };
 
     gas!(
-        interpreter,
+        interpreter.gas,
         host.gas_params()
             .selfdestruct_cost(should_charge_topup, res.is_cold)
     );
 
     // State gas for new account creation (EIP-8037)
     if host.is_amsterdam_eip8037_enabled() && should_charge_topup {
-        state_gas!(interpreter, host.gas_params().new_account_state_gas());
+        state_gas!(interpreter.gas, host.gas_params().new_account_state_gas());
     }
 
     if !res.previously_destroyed {

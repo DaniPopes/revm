@@ -744,7 +744,7 @@ fn test_custom_opcode_transaction() {
         DOUBLE,
         mk_dispatch(
             |interpreter: &mut Interpreter<EthInterpreter>, _host: &mut _| {
-                revm::interpreter::popn_top!([], val, interpreter);
+                revm::interpreter::popn_top!([], val, interpreter.stack);
                 *val = val.wrapping_mul(U256::from(2));
                 Ok(())
             },

@@ -17,7 +17,7 @@ pub fn get_memory_input_and_out_ranges(
     interpreter: &mut Interpreter<impl IT>,
     gas_params: &GasParams,
 ) -> Result<(Range<usize>, Range<usize>), InstructionResult> {
-    popn!([in_offset, in_len, out_offset, out_len], interpreter);
+    popn!([in_offset, in_len, out_offset, out_len], interpreter.stack);
 
     let mut in_range = resize_memory(interpreter, gas_params, in_offset, in_len)?;
 
@@ -39,9 +39,9 @@ pub fn resize_memory(
     offset: U256,
     len: U256,
 ) -> Result<Range<usize>, InstructionResult> {
-    let len = as_usize_or_fail!(interpreter, len);
+    let len = as_usize_or_fail!(len);
     let offset = if len != 0 {
-        let offset = as_usize_or_fail!(interpreter, offset);
+        let offset = as_usize_or_fail!(offset);
         interpreter.resize_memory(gas_params, offset, len)?;
         offset
     } else {
@@ -62,7 +62,7 @@ pub fn load_acc_and_calc_gas<H: Host + ?Sized>(
 ) -> Result<(u64, Bytecode, B256), InstructionResult> {
     // Transfer value cost
     if transfers_value {
-        gas!(interpreter, host.gas_params().transfer_value_cost());
+        gas!(interpreter.gas, host.gas_params().transfer_value_cost());
     }
 
     // load account delegated and deduct dynamic gas.
@@ -75,10 +75,10 @@ pub fn load_acc_and_calc_gas<H: Host + ?Sized>(
     )?;
 
     // deduct dynamic gas.
-    gas!(interpreter, gas);
+    gas!(interpreter.gas, gas);
 
     // deduct state gas (EIP-8037) if any.
-    state_gas!(interpreter, state_gas_cost);
+    state_gas!(interpreter.gas, state_gas_cost);
 
     // EIP-150: Gas cost changes for IO-heavy operations
     let mut gas_limit = if interpreter.runtime_flag.spec_id().is_enabled_in(TANGERINE) {
@@ -90,7 +90,7 @@ pub fn load_acc_and_calc_gas<H: Host + ?Sized>(
     } else {
         stack_gas_limit
     };
-    gas!(interpreter, gas_limit);
+    gas!(interpreter.gas, gas_limit);
 
     // Add call stipend if there is value to be transferred.
     if transfers_value {

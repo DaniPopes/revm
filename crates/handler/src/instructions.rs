@@ -23,23 +23,23 @@ pub trait InstructionProvider {
 
 /// Ethereum instruction contains list of mainnet instructions that is used for Interpreter execution.
 #[derive(Debug)]
-pub struct EthInstructions<WIRE: InterpreterTypes, HOST: ?Sized> {
+pub struct EthInstructions<I: InterpreterTypes, H: ?Sized> {
     /// Spec that is used to set gas costs for instructions.
     pub spec: SpecId,
-    inner: Box<EthInstructionsInner<WIRE, HOST>>,
+    inner: Box<EthInstructionsInner<I, H>>,
 }
 
 #[derive(Debug)]
-struct EthInstructionsInner<WIRE: InterpreterTypes, HOST: ?Sized> {
+struct EthInstructionsInner<I: InterpreterTypes, H: ?Sized> {
     /// Table containing instruction implementations indexed by opcode.
-    instruction_table: InstructionTable<WIRE, HOST>,
+    instruction_table: InstructionTable<I, H>,
     /// Static gas cost table indexed by opcode.
     gas_table: GasTable,
 }
 
-impl<WIRE, HOST: Host + ?Sized> Clone for EthInstructions<WIRE, HOST>
+impl<I, H: Host + ?Sized> Clone for EthInstructions<I, H>
 where
-    WIRE: InterpreterTypes,
+    I: InterpreterTypes,
 {
     fn clone(&self) -> Self {
         Self {
@@ -49,23 +49,20 @@ where
     }
 }
 
-impl<WIRE, HOST: Host + ?Sized> Clone for EthInstructionsInner<WIRE, HOST>
+impl<I, H: Host + ?Sized> Clone for EthInstructionsInner<I, H>
 where
-    WIRE: InterpreterTypes,
+    I: InterpreterTypes,
 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl<WIRE, HOST: Host + ?Sized> Copy for EthInstructionsInner<WIRE, HOST> where
-    WIRE: InterpreterTypes
-{
-}
+impl<I, H: Host + ?Sized> Copy for EthInstructionsInner<I, H> where I: InterpreterTypes {}
 
-impl<WIRE, HOST> EthInstructions<WIRE, HOST>
+impl<I, H> EthInstructions<I, H>
 where
-    WIRE: InterpreterTypes,
-    HOST: Host,
+    I: InterpreterTypes,
+    H: Host,
 {
     /// Returns `EthInstructions` with mainnet spec.
     #[deprecated(since = "0.2.0", note = "use new_mainnet_with_spec instead")]
@@ -81,7 +78,7 @@ where
 
     /// Returns a new instance of `EthInstructions` with custom instruction and gas tables.
     pub fn new(
-        instruction_table: InstructionTable<WIRE, HOST>,
+        instruction_table: InstructionTable<I, H>,
         gas_table: GasTable,
         spec: SpecId,
     ) -> Self {
@@ -99,7 +96,7 @@ where
     pub fn insert_instruction(
         &mut self,
         opcode: u8,
-        instruction: InstructionEntry<WIRE, HOST>,
+        instruction: InstructionEntry<I, H>,
         gas: u16,
     ) {
         self.inner.instruction_table[opcode as usize] = instruction;
@@ -114,13 +111,13 @@ where
 
     /// Returns a reference to the instruction table.
     #[inline]
-    pub fn instruction_table(&self) -> &InstructionTable<WIRE, HOST> {
+    pub fn instruction_table(&self) -> &InstructionTable<I, H> {
         &self.inner.instruction_table
     }
 
     /// Returns a mutable reference to the instruction table.
     #[inline]
-    pub fn instruction_table_mut(&mut self) -> &mut InstructionTable<WIRE, HOST> {
+    pub fn instruction_table_mut(&mut self) -> &mut InstructionTable<I, H> {
         &mut self.inner.instruction_table
     }
 

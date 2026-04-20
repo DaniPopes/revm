@@ -13,17 +13,17 @@ use primitives::{B256, KECCAK_EMPTY, U256};
 /// Implements the KECCAK256 instruction.
 ///
 /// Computes Keccak-256 hash of memory data.
-pub fn keccak256<WIRE: IT, H: Host + ?Sized>(
-    interpreter: &mut Interpreter<WIRE>,
+pub fn keccak256<I: IT, H: Host + ?Sized>(
+    interpreter: &mut Interpreter<I>,
     host: &mut H,
 ) -> Result {
-    popn_top!([offset], top, interpreter);
-    let len = as_usize_or_fail!(interpreter, top);
-    gas!(interpreter, host.gas_params().keccak256_cost(len));
+    popn_top!([offset], top, interpreter.stack);
+    let len = as_usize_or_fail!(top);
+    gas!(interpreter.gas, host.gas_params().keccak256_cost(len));
     let hash = if len == 0 {
         KECCAK_EMPTY
     } else {
-        let from = as_usize_or_fail!(interpreter, offset);
+        let from = as_usize_or_fail!(offset);
         resize_memory(
             &mut interpreter.gas,
             &mut interpreter.memory,
@@ -40,42 +40,33 @@ pub fn keccak256<WIRE: IT, H: Host + ?Sized>(
 /// Implements the ADDRESS instruction.
 ///
 /// Pushes the current contract's address onto the stack.
-pub fn address<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    push!(
-        interpreter,
-        interpreter.input.target_address().into_word().into()
-    );
+pub fn address(stack: &mut impl StackTr, input: &impl InputsTr) -> Result {
+    push!(stack, input.target_address().into_word().into());
     Ok(())
 }
 
 /// Implements the CALLER instruction.
 ///
 /// Pushes the caller's address onto the stack.
-pub fn caller<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    push!(
-        interpreter,
-        interpreter.input.caller_address().into_word().into()
-    );
+pub fn caller(stack: &mut impl StackTr, input: &impl InputsTr) -> Result {
+    push!(stack, input.caller_address().into_word().into());
     Ok(())
 }
 
 /// Implements the CODESIZE instruction.
 ///
 /// Pushes the size of running contract's bytecode onto the stack.
-pub fn codesize<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    push!(interpreter, U256::from(interpreter.bytecode.bytecode_len()));
+pub fn codesize(stack: &mut impl StackTr, bytecode: &impl LegacyBytecode) -> Result {
+    push!(stack, U256::from(bytecode.bytecode_len()));
     Ok(())
 }
 
 /// Implements the CODECOPY instruction.
 ///
 /// Copies running contract's bytecode to memory.
-pub fn codecopy<WIRE: IT, H: Host + ?Sized>(
-    interpreter: &mut Interpreter<WIRE>,
-    host: &mut H,
-) -> Result {
-    popn!([memory_offset, code_offset, len], interpreter);
-    let len = as_usize_or_fail!(interpreter, len);
+pub fn codecopy<I: IT, H: Host + ?Sized>(interpreter: &mut Interpreter<I>, host: &mut H) -> Result {
+    popn!([memory_offset, code_offset, len], interpreter.stack);
+    let len = as_usize_or_fail!(len);
     let Some(memory_offset) =
         copy_cost_and_memory_resize(interpreter, host.gas_params(), memory_offset, len)?
     else {
@@ -96,20 +87,24 @@ pub fn codecopy<WIRE: IT, H: Host + ?Sized>(
 /// Implements the CALLDATALOAD instruction.
 ///
 /// Loads 32 bytes of input data from the specified offset.
-pub fn calldataload<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    popn_top!([], offset_ptr, interpreter);
+pub fn calldataload(
+    stack: &mut impl StackTr,
+    input: &impl InputsTr,
+    memory: &impl MemoryTr,
+) -> Result {
+    popn_top!([], offset_ptr, stack);
     let mut word = B256::ZERO;
     let offset = as_usize_saturated!(*offset_ptr);
-    let input = interpreter.input.input();
-    let input_len = input.len();
+    let inp = input.input();
+    let input_len = inp.len();
     if offset < input_len {
         let count = 32.min(input_len - offset);
-        let input = &*input.as_bytes_memory(&interpreter.memory);
+        let inp = &*inp.as_bytes_memory(memory);
         // SAFETY: `count` is bounded by the calldata length.
         // This is `word[..count].copy_from_slice(input[offset..offset + count])`, written using
         // raw pointers as apparently the compiler cannot optimize the slice version, and using
         // `get_unchecked` twice is uglier.
-        unsafe { ptr::copy_nonoverlapping(input.as_ptr().add(offset), word.as_mut_ptr(), count) };
+        unsafe { ptr::copy_nonoverlapping(inp.as_ptr().add(offset), word.as_mut_ptr(), count) };
     }
     *offset_ptr = word.into();
     Ok(())
@@ -118,28 +113,28 @@ pub fn calldataload<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
 /// Implements the CALLDATASIZE instruction.
 ///
 /// Pushes the size of input data onto the stack.
-pub fn calldatasize<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    push!(interpreter, U256::from(interpreter.input.input().len()));
+pub fn calldatasize(stack: &mut impl StackTr, input: &impl InputsTr) -> Result {
+    push!(stack, U256::from(input.input().len()));
     Ok(())
 }
 
 /// Implements the CALLVALUE instruction.
 ///
 /// Pushes the value sent with the current call onto the stack.
-pub fn callvalue<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    push!(interpreter, interpreter.input.call_value());
+pub fn callvalue(stack: &mut impl StackTr, input: &impl InputsTr) -> Result {
+    push!(stack, input.call_value());
     Ok(())
 }
 
 /// Implements the CALLDATACOPY instruction.
 ///
 /// Copies input data to memory.
-pub fn calldatacopy<WIRE: IT, H: Host + ?Sized>(
-    interpreter: &mut Interpreter<WIRE>,
+pub fn calldatacopy<I: IT, H: Host + ?Sized>(
+    interpreter: &mut Interpreter<I>,
     host: &mut H,
 ) -> Result {
-    popn!([memory_offset, data_offset, len], interpreter);
-    let len = as_usize_or_fail!(interpreter, len);
+    popn!([memory_offset, data_offset, len], interpreter.stack);
+    let len = as_usize_or_fail!(len);
     let Some(memory_offset) =
         copy_cost_and_memory_resize(interpreter, host.gas_params(), memory_offset, len)?
     else {
@@ -163,24 +158,25 @@ pub fn calldatacopy<WIRE: IT, H: Host + ?Sized>(
 }
 
 /// EIP-211: New opcodes: RETURNDATASIZE and RETURNDATACOPY
-pub fn returndatasize<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    check!(interpreter, BYZANTIUM);
-    push!(
-        interpreter,
-        U256::from(interpreter.return_data.buffer().len())
-    );
+pub fn returndatasize(
+    stack: &mut impl StackTr,
+    runtime_flag: &impl RuntimeFlag,
+    return_data: &impl ReturnData,
+) -> Result {
+    check!(runtime_flag, BYZANTIUM);
+    push!(stack, U256::from(return_data.buffer().len()));
     Ok(())
 }
 
 /// EIP-211: New opcodes: RETURNDATASIZE and RETURNDATACOPY
-pub fn returndatacopy<WIRE: IT, H: Host + ?Sized>(
-    interpreter: &mut Interpreter<WIRE>,
+pub fn returndatacopy<I: IT, H: Host + ?Sized>(
+    interpreter: &mut Interpreter<I>,
     host: &mut H,
 ) -> Result {
-    check!(interpreter, BYZANTIUM);
-    popn!([memory_offset, offset, len], interpreter);
+    check!(interpreter.runtime_flag, BYZANTIUM);
+    popn!([memory_offset, offset, len], interpreter.stack);
 
-    let len = as_usize_or_fail!(interpreter, len);
+    let len = as_usize_or_fail!(len);
     let data_offset = as_usize_saturated!(offset);
 
     // Old legacy behavior is to panic if data_end is out of scope of return buffer.
@@ -210,9 +206,8 @@ pub fn returndatacopy<WIRE: IT, H: Host + ?Sized>(
 /// Pushes the amount of remaining gas onto the stack.
 /// Returns `gas_left` only (excluding the state gas reservoir) per EIP-8037.
 /// On mainnet (no state gas), this is equivalent to returning `remaining`.
-pub fn gas<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    let gas = &interpreter.gas;
-    push!(interpreter, U256::from(gas.remaining()));
+pub fn gas(stack: &mut impl StackTr, gas: &crate::Gas) -> Result {
+    push!(stack, U256::from(gas.remaining()));
     Ok(())
 }
 
@@ -226,11 +221,11 @@ pub fn copy_cost_and_memory_resize(
     len: usize,
 ) -> Result<Option<usize>, InstructionResult> {
     // Safe to cast usize to u64
-    gas!(interpreter, gas_params.copy_cost(len));
+    gas!(interpreter.gas, gas_params.copy_cost(len));
     if len == 0 {
         return Ok(None);
     }
-    let memory_offset = as_usize_or_fail!(interpreter, memory_offset);
+    let memory_offset = as_usize_or_fail!(memory_offset);
     interpreter.resize_memory(gas_params, memory_offset, len)?;
 
     Ok(Some(memory_offset))

@@ -28,23 +28,23 @@ use primitives::{hardfork::SpecId, hints_util::cold_path, Bytes};
 /// Main interpreter structure that contains all components defined in [`InterpreterTypes`].
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Interpreter<WIRE: InterpreterTypes = EthInterpreter> {
+pub struct Interpreter<I: InterpreterTypes = EthInterpreter> {
     /// Bytecode being executed.
-    pub bytecode: WIRE::Bytecode,
+    pub bytecode: I::Bytecode,
     /// Gas tracking for execution costs.
     pub gas: Gas,
     /// EVM stack for computation.
-    pub stack: WIRE::Stack,
+    pub stack: I::Stack,
     /// Buffer for return data from calls.
-    pub return_data: WIRE::ReturnData,
+    pub return_data: I::ReturnData,
     /// EVM memory for data storage.
-    pub memory: WIRE::Memory,
+    pub memory: I::Memory,
     /// Input data for current execution context.
-    pub input: WIRE::Input,
+    pub input: I::Input,
     /// Runtime flags controlling execution behavior.
-    pub runtime_flag: WIRE::RuntimeFlag,
+    pub runtime_flag: I::RuntimeFlag,
     /// Extended functionality and customizations.
-    pub extend: WIRE::Extend,
+    pub extend: I::Extend,
 }
 
 impl<EXT: Default> Interpreter<EthInterpreter<EXT>> {
@@ -349,9 +349,8 @@ impl<IW: InterpreterTypes> Interpreter<IW> {
     /// directly into a match statement, which can be more amenable to compiler optimizations.
     #[inline]
     #[allow(dead_code)]
-    fn run_match<H: Host + ?Sized>(&mut self, gt: &GasTable, host: &mut H) -> InterpreterAction {
+    fn run_match<H: Host>(&mut self, gt: &GasTable, host: &mut H) -> InterpreterAction {
         use crate::instructions::*;
-
         let e = loop {
             let opcode = match self.pre_step(gt) {
                 Ok(opcode) => opcode,
@@ -362,10 +361,13 @@ impl<IW: InterpreterTypes> Interpreter<IW> {
             };
 
             macro_rules! make_match {
-                ([] $(($op:ident, $fn:expr),)*) => {
+                ([] $(($op:ident, ($($f:tt)*)),)*) => {
                     match opcode {
-                        $(bytecode::opcode::$op => Instr::execute($fn, self, host),)*
-                        _ => Instr::execute(control::unknown, self, host),
+                        $(bytecode::opcode::$op => opcode_dispatch!($op, self, host, ($($f)*)),)*
+                        _ => {
+                            cold_path();
+                            Err(InstructionResult::OpcodeNotFound)
+                        }
                     }
                 };
             }

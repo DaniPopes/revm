@@ -1,6 +1,5 @@
 use crate::{
-    interpreter::Interpreter,
-    interpreter_types::{Immediates, InterpreterTypes as IT, Jumps, RuntimeFlag, StackTr},
+    interpreter_types::{Immediates, Jumps, RuntimeFlag, StackTr},
     InstructionExecResult as Result, InstructionResult,
 };
 use primitives::U256;
@@ -8,39 +7,40 @@ use primitives::U256;
 /// Implements the POP instruction.
 ///
 /// Removes the top item from the stack.
-pub fn pop<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    // Can ignore return. as relative N jump is safe operation.
-    popn!([_i], interpreter);
+pub fn pop(stack: &mut impl StackTr) -> Result {
+    popn!([_i], stack);
     Ok(())
 }
 
 /// EIP-3855: PUSH0 instruction
 ///
 /// Introduce a new instruction which pushes the constant value 0 onto the stack.
-pub fn push0<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    check!(interpreter, SHANGHAI);
-    push!(interpreter, U256::ZERO);
+pub fn push0(stack: &mut impl StackTr, runtime_flag: &impl RuntimeFlag) -> Result {
+    check!(runtime_flag, SHANGHAI);
+    push!(stack, U256::ZERO);
     Ok(())
 }
 
 /// Implements the PUSH1-PUSH32 instructions.
 ///
 /// Pushes N bytes from bytecode onto the stack as a 32-byte value.
-pub fn push<const N: usize, WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    let slice = interpreter.bytecode.read_slice(N);
-    if !interpreter.stack.push_slice(slice) {
+pub fn push<const N: usize>(
+    stack: &mut impl StackTr,
+    bytecode: &mut (impl Immediates + Jumps),
+) -> Result {
+    let slice = bytecode.read_slice(N);
+    if !stack.push_slice(slice) {
         return Err(InstructionResult::StackOverflow);
     }
-
-    interpreter.bytecode.relative_jump(N as isize);
+    bytecode.relative_jump(N as isize);
     Ok(())
 }
 
 /// Implements the DUP1-DUP16 instructions.
 ///
 /// Duplicates the Nth stack item to the top of the stack.
-pub fn dup<const N: usize, WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    if !interpreter.stack.dup(N) {
+pub fn dup<const N: usize>(stack: &mut impl StackTr) -> Result {
+    if !stack.dup(N) {
         return Err(InstructionResult::StackOverflow);
     }
     Ok(())
@@ -49,9 +49,9 @@ pub fn dup<const N: usize, WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Res
 /// Implements the SWAP1-SWAP16 instructions.
 ///
 /// Swaps the top stack item with the Nth stack item.
-pub fn swap<const N: usize, WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
+pub fn swap<const N: usize>(stack: &mut impl StackTr) -> Result {
     assert!(N != 0);
-    if !interpreter.stack.exchange(0, N) {
+    if !stack.exchange(0, N) {
         return Err(InstructionResult::StackUnderflow);
     }
     Ok(())
@@ -60,14 +60,18 @@ pub fn swap<const N: usize, WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Re
 /// Implements the DUPN instruction.
 ///
 /// Duplicates the Nth stack item to the top of the stack, with N given by an immediate.
-pub fn dupn<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    check!(interpreter, AMSTERDAM);
-    let x: usize = interpreter.bytecode.read_u8().into();
+pub fn dupn(
+    stack: &mut impl StackTr,
+    bytecode: &mut (impl Immediates + Jumps),
+    runtime_flag: &impl RuntimeFlag,
+) -> Result {
+    check!(runtime_flag, AMSTERDAM);
+    let x: usize = bytecode.read_u8().into();
     if let Some(n) = decode_single(x) {
-        if !interpreter.stack.dup(n) {
+        if !stack.dup(n) {
             return Err(InstructionResult::StackOverflow);
         }
-        interpreter.bytecode.relative_jump(1);
+        bytecode.relative_jump(1);
     } else {
         return Err(InstructionResult::InvalidImmediateEncoding);
     }
@@ -77,14 +81,18 @@ pub fn dupn<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
 /// Implements the SWAPN instruction.
 ///
 /// Swaps the top stack item with the N+1th stack item, with N given by an immediate.
-pub fn swapn<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    check!(interpreter, AMSTERDAM);
-    let x: usize = interpreter.bytecode.read_u8().into();
+pub fn swapn(
+    stack: &mut impl StackTr,
+    bytecode: &mut (impl Immediates + Jumps),
+    runtime_flag: &impl RuntimeFlag,
+) -> Result {
+    check!(runtime_flag, AMSTERDAM);
+    let x: usize = bytecode.read_u8().into();
     if let Some(n) = decode_single(x) {
-        if !interpreter.stack.exchange(0, n) {
+        if !stack.exchange(0, n) {
             return Err(InstructionResult::StackUnderflow);
         }
-        interpreter.bytecode.relative_jump(1);
+        bytecode.relative_jump(1);
     } else {
         return Err(InstructionResult::InvalidImmediateEncoding);
     }
@@ -94,14 +102,18 @@ pub fn swapn<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
 /// Implements the EXCHANGE instruction.
 ///
 /// Swaps the N+1th stack item with the M+1th stack item, with N, M given by an immediate.
-pub fn exchange<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    check!(interpreter, AMSTERDAM);
-    let x: usize = interpreter.bytecode.read_u8().into();
+pub fn exchange(
+    stack: &mut impl StackTr,
+    bytecode: &mut (impl Immediates + Jumps),
+    runtime_flag: &impl RuntimeFlag,
+) -> Result {
+    check!(runtime_flag, AMSTERDAM);
+    let x: usize = bytecode.read_u8().into();
     if let Some((n, m)) = decode_pair(x) {
-        if !interpreter.stack.exchange(n, m - n) {
+        if !stack.exchange(n, m - n) {
             return Err(InstructionResult::StackUnderflow);
         }
-        interpreter.bytecode.relative_jump(1);
+        bytecode.relative_jump(1);
     } else {
         return Err(InstructionResult::InvalidImmediateEncoding);
     }

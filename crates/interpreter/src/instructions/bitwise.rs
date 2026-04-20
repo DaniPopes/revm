@@ -1,30 +1,29 @@
 use super::i256::i256_cmp;
 use crate::{
-    interpreter::Interpreter,
-    interpreter_types::{InterpreterTypes as IT, RuntimeFlag, StackTr},
+    interpreter_types::{RuntimeFlag, StackTr},
     InstructionExecResult as Result,
 };
 use core::cmp::Ordering;
 use primitives::U256;
 
 /// Implements the LT instruction - less than comparison.
-pub fn lt<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    popn_top!([op1], op2, interpreter);
+pub fn lt(stack: &mut impl StackTr) -> Result {
+    popn_top!([op1], op2, stack);
     *op2 = U256::from(op1 < *op2);
     Ok(())
 }
 
 /// Implements the GT instruction - greater than comparison.
-pub fn gt<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    popn_top!([op1], op2, interpreter);
+pub fn gt(stack: &mut impl StackTr) -> Result {
+    popn_top!([op1], op2, stack);
     *op2 = U256::from(op1 > *op2);
     Ok(())
 }
 
 /// Implements the CLZ instruction - count leading zeros.
-pub fn clz<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    check!(interpreter, OSAKA);
-    popn_top!([], op1, interpreter);
+pub fn clz(stack: &mut impl StackTr, runtime_flag: &impl RuntimeFlag) -> Result {
+    check!(runtime_flag, OSAKA);
+    popn_top!([], op1, stack);
     let leading_zeros = op1.leading_zeros();
     *op1 = U256::from(leading_zeros);
     Ok(())
@@ -33,8 +32,8 @@ pub fn clz<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
 /// Implements the SLT instruction.
 ///
 /// Signed less than comparison of two values from stack.
-pub fn slt<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    popn_top!([op1], op2, interpreter);
+pub fn slt(stack: &mut impl StackTr) -> Result {
+    popn_top!([op1], op2, stack);
     *op2 = U256::from(i256_cmp(&op1, op2) == Ordering::Less);
     Ok(())
 }
@@ -42,8 +41,8 @@ pub fn slt<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
 /// Implements the SGT instruction.
 ///
 /// Signed greater than comparison of two values from stack.
-pub fn sgt<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    popn_top!([op1], op2, interpreter);
+pub fn sgt(stack: &mut impl StackTr) -> Result {
+    popn_top!([op1], op2, stack);
     *op2 = U256::from(i256_cmp(&op1, op2) == Ordering::Greater);
     Ok(())
 }
@@ -51,8 +50,8 @@ pub fn sgt<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
 /// Implements the EQ instruction.
 ///
 /// Equality comparison of two values from stack.
-pub fn eq<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    popn_top!([op1], op2, interpreter);
+pub fn eq(stack: &mut impl StackTr) -> Result {
+    popn_top!([op1], op2, stack);
     *op2 = U256::from(op1 == *op2);
     Ok(())
 }
@@ -60,8 +59,8 @@ pub fn eq<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
 /// Implements the ISZERO instruction.
 ///
 /// Checks if the top stack value is zero.
-pub fn iszero<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    popn_top!([], op1, interpreter);
+pub fn iszero(stack: &mut impl StackTr) -> Result {
+    popn_top!([], op1, stack);
     *op1 = U256::from(op1.is_zero());
     Ok(())
 }
@@ -69,8 +68,8 @@ pub fn iszero<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
 /// Implements the AND instruction.
 ///
 /// Bitwise AND of two values from stack.
-pub fn bitand<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    popn_top!([op1], op2, interpreter);
+pub fn bitand(stack: &mut impl StackTr) -> Result {
+    popn_top!([op1], op2, stack);
     *op2 = op1 & *op2;
     Ok(())
 }
@@ -78,8 +77,8 @@ pub fn bitand<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
 /// Implements the OR instruction.
 ///
 /// Bitwise OR of two values from stack.
-pub fn bitor<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    popn_top!([op1], op2, interpreter);
+pub fn bitor(stack: &mut impl StackTr) -> Result {
+    popn_top!([op1], op2, stack);
     *op2 = op1 | *op2;
     Ok(())
 }
@@ -87,8 +86,8 @@ pub fn bitor<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
 /// Implements the XOR instruction.
 ///
 /// Bitwise XOR of two values from stack.
-pub fn bitxor<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    popn_top!([op1], op2, interpreter);
+pub fn bitxor(stack: &mut impl StackTr) -> Result {
+    popn_top!([op1], op2, stack);
     *op2 = op1 ^ *op2;
     Ok(())
 }
@@ -96,8 +95,8 @@ pub fn bitxor<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
 /// Implements the NOT instruction.
 ///
 /// Bitwise NOT (negation) of the top stack value.
-pub fn not<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    popn_top!([], op1, interpreter);
+pub fn not(stack: &mut impl StackTr) -> Result {
+    popn_top!([], op1, stack);
     *op1 = !*op1;
     Ok(())
 }
@@ -105,8 +104,8 @@ pub fn not<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
 /// Implements the BYTE instruction.
 ///
 /// Extracts a single byte from a word at a given index.
-pub fn byte<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    popn_top!([op1], op2, interpreter);
+pub fn byte(stack: &mut impl StackTr) -> Result {
+    popn_top!([op1], op2, stack);
     let o1 = as_usize_saturated!(op1);
     *op2 = if o1 < 32 {
         // `31 - o1` because `byte` returns LE, while we want BE
@@ -118,9 +117,9 @@ pub fn byte<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
 }
 
 /// EIP-145: Bitwise shifting instructions in EVM
-pub fn shl<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    check!(interpreter, CONSTANTINOPLE);
-    popn_top!([op1], op2, interpreter);
+pub fn shl(stack: &mut impl StackTr, runtime_flag: &impl RuntimeFlag) -> Result {
+    check!(runtime_flag, CONSTANTINOPLE);
+    popn_top!([op1], op2, stack);
     let shift = as_usize_saturated!(op1);
     *op2 = if shift < 256 {
         *op2 << shift
@@ -131,9 +130,9 @@ pub fn shl<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
 }
 
 /// EIP-145: Bitwise shifting instructions in EVM
-pub fn shr<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    check!(interpreter, CONSTANTINOPLE);
-    popn_top!([op1], op2, interpreter);
+pub fn shr(stack: &mut impl StackTr, runtime_flag: &impl RuntimeFlag) -> Result {
+    check!(runtime_flag, CONSTANTINOPLE);
+    popn_top!([op1], op2, stack);
     let shift = as_usize_saturated!(op1);
     *op2 = if shift < 256 {
         *op2 >> shift
@@ -144,9 +143,9 @@ pub fn shr<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
 }
 
 /// EIP-145: Bitwise shifting instructions in EVM
-pub fn sar<WIRE: IT>(interpreter: &mut Interpreter<WIRE>) -> Result {
-    check!(interpreter, CONSTANTINOPLE);
-    popn_top!([op1], op2, interpreter);
+pub fn sar(stack: &mut impl StackTr, runtime_flag: &impl RuntimeFlag) -> Result {
+    check!(runtime_flag, CONSTANTINOPLE);
+    popn_top!([op1], op2, stack);
     let shift = as_usize_saturated!(op1);
     *op2 = if shift < 256 {
         op2.arithmetic_shr(shift)
@@ -239,7 +238,7 @@ mod tests {
         for test in test_cases {
             assert!(interpreter.stack.push(test.value));
             assert!(interpreter.stack.push(test.shift));
-            let _ = shl(&mut interpreter);
+            let _ = shl(&mut interpreter.stack, &interpreter.runtime_flag);
             let res = interpreter.stack.pop().unwrap();
             assert_eq!(res, test.expected);
         }
@@ -318,7 +317,7 @@ mod tests {
         for test in test_cases {
             assert!(interpreter.stack.push(test.value));
             assert!(interpreter.stack.push(test.shift));
-            let _ = shr(&mut interpreter);
+            let _ = shr(&mut interpreter.stack, &interpreter.runtime_flag);
             let res = interpreter.stack.pop().unwrap();
             assert_eq!(res, test.expected);
         }
@@ -422,7 +421,7 @@ mod tests {
         for test in test_cases {
             assert!(interpreter.stack.push(test.value));
             assert!(interpreter.stack.push(test.shift));
-            let _ = sar(&mut interpreter);
+            let _ = sar(&mut interpreter.stack, &interpreter.runtime_flag);
             let res = interpreter.stack.pop().unwrap();
             assert_eq!(res, test.expected);
         }
@@ -456,7 +455,7 @@ mod tests {
         for test in test_cases.iter() {
             assert!(interpreter.stack.push(test.input));
             assert!(interpreter.stack.push(U256::from(test.index)));
-            let _ = byte(&mut interpreter);
+            let _ = byte(&mut interpreter.stack);
             let res = interpreter.stack.pop().unwrap();
             assert_eq!(res, test.expected, "Failed at index: {}", test.index);
         }
@@ -505,7 +504,7 @@ mod tests {
 
         for test in test_cases {
             assert!(interpreter.stack.push(test.value));
-            let _ = clz(&mut interpreter);
+            let _ = clz(&mut interpreter.stack, &interpreter.runtime_flag);
             let res = interpreter.stack.pop().unwrap();
             assert_eq!(
                 res, test.expected,
