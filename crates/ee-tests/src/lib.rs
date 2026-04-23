@@ -99,17 +99,9 @@ where
 
     // Compare the output objects directly
     if *output != expected {
-        similar_asserts::assert_eq!(
-            *output,
-            expected,
-            "value does not match testdata {testdata_file:?}"
+        panic!(
+            "Value does not match testdata.\nExpected:\n{expected_json}\n\nActual:\n{output_json}"
         );
-        similar_asserts::assert_eq!(
-            output_json,
-            expected_json,
-            "value does not match testdata {testdata_file:?}"
-        );
-        panic!("output != expected @ {testdata_file:?}");
     }
 }
 
